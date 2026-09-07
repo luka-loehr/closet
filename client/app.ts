@@ -33,7 +33,8 @@ const swatch = (name: string) => { const n = name.toLowerCase().trim(); if (SWAT
 const swatches = (colors: string[] | undefined) => (colors?.length ? `<span class="swatches">${colors.map((c) => `<i style="background:${esc(swatch(c))}" title="${esc(c)}"></i>`).join("")}</span>` : "");
 /** The wardrobe image of a piece: the studio shot once it exists, else the upload. */
 const thumbOf = (key: string, thumb: boolean) => img(thumb && key.endsWith(".webp") ? key.replace(/\.webp$/, ".t.webp") : key);
-const pieceImg = (g: Garment, thumb = true) => { if (g.studio_key && g.studio_key !== g.r2_key) return thumbOf(g.studio_key, thumb); return img(thumb ? g.thumb_key ?? g.r2_key : g.r2_key); };
+/** Only generated studio views are ever shown; the uploaded photo is model input and stays private. */
+const pieceImg = (g: Garment, thumb = true) => (g.studio_key && g.studio_key !== g.r2_key ? thumbOf(g.studio_key, thumb) : "");
 const pieceAlt = (g: Garment, thumb = true) => (g.studio_alt_key ? thumbOf(g.studio_alt_key, thumb) : "");
 const slotsOf = (cat: string | null | undefined) => SLOT_OF[cat ?? ""] ?? [];
 const app = $("#app")!;
@@ -162,9 +163,9 @@ function card(g: Garment, i = 0): string {
 function pieceCard(g: Garment, i = 0): string {
   const generating = g.studio_status === "pending";
   const meta = [g.brand, CAT_LABEL[g.category ?? ""] ?? g.category].filter(Boolean).join(" · ");
-  const alt = pieceAlt(g);
+  const alt = pieceAlt(g), main = pieceImg(g);
   return `<a class="card piece" href="/p/${g.id}" data-pid="${g.id}" style="--i:${i}">
-    <div class="tile ${generating ? "skeleton" : ""}"><img class="product ${generating ? "raw" : ""}" src="${pieceImg(g)}" alt="" loading="lazy" decoding="async" />${alt ? `<img class="product alt" src="${alt}" alt="" loading="lazy" decoding="async" />` : ""}${generating ? `<div class="status">Studio shots…</div>` : ""}</div>
+    <div class="tile ${generating || !main ? "skeleton" : ""}">${main ? `<img class="product" src="${main}" alt="" loading="lazy" decoding="async" />` : ""}${alt ? `<img class="product alt" src="${alt}" alt="" loading="lazy" decoding="async" />` : ""}${generating ? `<div class="status">Studio shots…</div>` : !main ? `<div class="status">No studio shot</div>` : ""}</div>
     <div class="info"><div class="name">${esc(g.name)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}<div class="variants">${swatches(g.colors)}</div></div>
   </a>`;
 }
@@ -459,7 +460,7 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
       <div class="slothead"><span class="caps">${SLOT_LABEL[slot] ?? slot}</span>${missing ? `<span class="tag-missing">Missing from this fit</span>` : `<span class="muted" style="font-size:11px">Optional</span>`}</div>
       <div class="slotpick">
         <button type="button" class="pick none on" data-slot="${slot}" data-id="" title="Keep what the base photo wears"><span>Keep<br>base</span></button>
-        ${options.map((w) => `<button type="button" class="pick" data-slot="${slot}" data-id="${w.id}" title="${esc(w.name)}"><img src="${pieceImg(w)}" alt="" /></button>`).join("")}
+        ${options.map((w) => `<button type="button" class="pick" data-slot="${slot}" data-id="${w.id}" title="${esc(w.name)}">${pieceImg(w) ? `<img src="${pieceImg(w)}" alt="" />` : `<span>${esc(w.name.split(" ").slice(0, 2).join(" "))}</span>`}</button>`).join("")}
         ${options.length ? "" : `<a class="pick add" href="/add?own=1" title="Add a piece you own">+ Add<br>yours</a>`}
       </div></div>`;
   };
@@ -476,7 +477,7 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
       <div class="field"><label>Description</label><textarea class="input" name="description" maxlength="300" rows="2">${esc(g.description ?? "")}</textarea></div>
     </div>
     ${slotsToPick.length ? `<div class="complete"><div class="section-head" style="margin:6px 0 10px"><h2>Complete the fit</h2><span class="muted" style="font-size:11px">Pieces from your closet are worn with it</span></div>${slotsToPick.map(pickerRow).join("")}</div>` : ""}
-    <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? "Clean studio shots on white are generated from your photo in the background (~40 s; shoes get a side and a three-quarter view)." : "Three looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
+    <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? "Two studio views on white are generated from your photo in the background (~40 s): the piece and a detail shot, or for shoes the side and three-quarter view. Your photo itself is never shown." : "Three looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
   const colorsIn = $<HTMLInputElement>("[name=colors]", form)!;
   colorsIn.addEventListener("input", () => { const cs = colorsIn.value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 3); $("#sw")!.innerHTML = cs.map((c) => `<i style="background:${esc(swatch(c))}"></i>`).join(""); });
   $$(".pick[data-slot]", form).forEach((b) => b.addEventListener("click", () => {
@@ -524,23 +525,26 @@ async function openPiece(id: string, push = true) {
   else if (!push && location.pathname !== `/p/${id}`) history.replaceState({ piece: id }, "", `/p/${id}`);
   const el = document.createElement("div");
   el.className = "viewer piece";
-  const hasStudio = !!(g.studio_key && g.studio_key !== g.r2_key);
   const pending = g.studio_status === "pending";
+  const shoes = g.category === "shoes";
   el.innerHTML = `
     <div class="v-head">
       <div><div class="v-name">${esc(g.name)}</div><div class="v-meta">${esc([g.brand, CAT_LABEL[g.category ?? ""] ?? g.category].filter(Boolean).join(" · "))} ${swatches(g.colors)}</div>${g.description ? `<p class="v-desc">${esc(g.description)}</p>` : ""}</div>
       <button class="v-close" aria-label="Close">×</button>
     </div>
     <div class="v-row one">
-      <figure class="v-panel" style="--i:0"><div class="v-tile product ${pending ? "skeleton" : ""}"><img src="${pieceImg(g, false)}" alt="" class="${pending ? "raw" : ""}" /></div><figcaption>${pending ? "Studio shots generating…" : hasStudio ? (g.studio_alt_key ? "Side view" : "Studio shot") : g.studio_status === "error" ? "Studio shot failed · your photo" : "Your photo"}</figcaption></figure>
-      ${g.studio_alt_key ? `<figure class="v-panel" style="--i:1"><div class="v-tile product"><img src="${pieceAlt(g, false)}" alt="" /></div><figcaption>Three-quarter view</figcaption></figure>` : ""}
-      ${hasStudio ? `<figure class="v-panel" style="--i:2"><div class="v-tile product"><img src="${img(g.r2_key)}" alt="" class="raw" /></div><figcaption>Your photo</figcaption></figure>` : ""}
+      <figure class="v-panel" style="--i:0"><div class="v-tile product ${pending || !pieceImg(g) ? "skeleton" : ""}">${pieceImg(g) ? `<img src="${pieceImg(g, false)}" alt="" />` : `<div class="v-missing">${pending ? "Studio shot<br><span>generating…</span>" : "Studio shot<br><span>" + (g.studio_status === "error" ? "failed" : "not generated") + "</span>"}</div>`}</div><figcaption>${shoes ? "Side view" : "Studio shot"}</figcaption></figure>
+      <figure class="v-panel" style="--i:1"><div class="v-tile product ${pending || !pieceAlt(g) ? "skeleton" : ""}">${pieceAlt(g) ? `<img src="${pieceAlt(g, false)}" alt="" />` : `<div class="v-missing">${shoes ? "Three-quarter" : "Detail"}<br><span>${pending ? "generating…" : "not generated"}</span></div>`}</div><figcaption>${shoes ? "Three-quarter view" : "Detail"}</figcaption></figure>
     </div>
-    <div class="v-foot"><span class="muted" style="font-size:11px">${g.source_url ? `<a href="${esc(g.source_url)}" target="_blank" rel="noopener">Source ↗</a>` : "Owned"}</span><button class="v-del">Remove from closet</button></div>`;
+    <div class="v-foot"><div class="row"><span class="muted" style="font-size:11px">${g.source_url ? `<a href="${esc(g.source_url)}" target="_blank" rel="noopener">Source ↗</a>` : "Owned"}</span>${g.studio_status !== "pending" ? `<button class="v-re" title="Render both studio views again from your photo">Re-render</button>` : ""}</div><button class="v-del">Remove from closet</button></div>`;
   document.body.appendChild(el); document.body.classList.add("noscroll"); pieceEl = el;
   void el.offsetWidth; setTimeout(() => el.classList.add("open"), 10);
   $(".v-close", el)!.addEventListener("click", () => closePiece());
   el.addEventListener("click", (e) => { if (e.target === el || (e.target as HTMLElement).classList.contains("v-row")) closePiece(); });
+  $(".v-re", el)?.addEventListener("click", async () => {
+    try { await api(`/api/garments/${g.id}/studio`, { method: "POST" }); toast("Re-rendering both views in the background."); closePiece(false); navigate("/closet", true); }
+    catch (err: any) { toast(err.message, true); }
+  });
   $(".v-del", el)!.addEventListener("click", async () => {
     if (!confirm(`Remove "${g.name}" from your closet?`)) return;
     await api(`/api/garments/${g.id}`, { method: "DELETE" });

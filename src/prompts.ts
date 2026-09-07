@@ -51,12 +51,20 @@ export function buildLookPrompt(variant: Variant, paired: Paired[] = []): string
 
 /** Wardrobe product shots: image 1 = the uploaded piece (a phone photo, worn, on a hanger, or on a busy background). */
 export type StudioView = "main" | "alt";
-export function studioViews(category: string | null): StudioView[] {
-  return category === "shoes" ? ["main", "alt"] : ["main"];
+/** Every owned piece gets two generated views: the studio shot and one that unveils on hover (shoes: three-quarter; everything else: a detail close-up). */
+export function studioViews(_category: string | null): StudioView[] {
+  return ["main", "alt"];
 }
 export function buildStudioPrompt(category: string | null, name: string, view: StudioView = "main"): string {
   let how: string;
-  if (category === "shoes") {
+  if (view === "alt" && category !== "shoes") {
+    const focus = category === "pants" || category === "shorts"
+      ? "the waistband, button, fly and belt loops, with the top of the pockets"
+      : category === "accessory"
+        ? "the most characteristic detail of the item (logo, hardware, texture)"
+        : "the collar or neckline, the top of the placket or zip, the inside label and the surrounding fabric";
+    how = `a close-up detail shot of ${focus}, the garment laid flat and photographed from directly above at a slight diagonal so that fabric texture, ribbing, stitching and any logo or print are crisply readable, the crop tight on that area (about a third of the garment visible)`;
+  } else if (category === "shoes") {
     how = view === "alt"
       ? "the pair of shoes seen from a three-quarter front angle slightly from above, both shoes side by side, laces visible, resting on the floor"
       : "a single shoe in exact side profile, toe pointing to the left, resting flat on the floor, like a sneaker listing on a shop";
