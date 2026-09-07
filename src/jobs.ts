@@ -77,8 +77,11 @@ type LookRow = { id: string; garment_id: string; variant: string; model: string;
 export async function compositeLook(env: Env, look: { id: string; variant: string }, cutoutKey: string, cutout?: ArrayBuffer, prompt: string | null = null, ms = 0): Promise<void> {
   const bytes = cutout ?? (await loadR2Image(env, cutoutKey)).bytes;
   const bg = VARIANT_BACKGROUND[look.variant as Variant] ?? VARIANT_BACKGROUND.white;
-  // Flatten in plain JS (src/png.ts): the Images binding's background/draw are not available in every runtime.
-  const flat = await flattenPng(bytes, bg);
+  // The plates are the base photo's own studio with the person removed and his floor shadow kept (plates/<variant>.png in R2,
+  // generated once from the base reference). Without a plate the variant falls back to its flat colour.
+  const plateObj = await env.IMAGES.get(`plates/${look.variant}.png`);
+  const plate = plateObj ? await plateObj.arrayBuffer() : undefined;
+  const flat = await flattenPng(bytes, bg, plate);
   const stored = await storeImage(env, `looks/${look.id}`, flat.buffer as ArrayBuffer, "image/png", { thumb: true });
   await env.DB.prepare("UPDATE looks SET status = 'done', r2_key = ?, thumb_key = ?, cutout_key = ?, prompt = ?, duration_ms = ? WHERE id = ?").bind(stored.key, stored.thumb_key, cutoutKey, prompt, ms, look.id).run();
 }
