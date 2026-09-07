@@ -2,10 +2,8 @@
 // Recipe (validated 2026-09-06): the approved base full-body photo is the only identity input; the model edits it.
 // Nothing about the face is described in words: the base photo carries the identity.
 
-export type Variant = "white" | "dark";
-export const VARIANTS: Variant[] = ["white", "dark"];
-/** The flat colour each variant is composited on: pure white and pure black, no shadow, no gradient. */
-export const VARIANT_BACKGROUND: Record<Variant, string> = { white: "#ffffff", dark: "#000000" };
+export type Variant = "white" | "dark" | "nature";
+export const VARIANTS: Variant[] = ["white", "dark", "nature"];
 
 import { CATEGORY_IDS, detailFills, familyOf, slotsOf, studioHow, type Slot } from "./taxonomy";
 export { slotsOf };
@@ -18,6 +16,12 @@ export type Category = string;
 export const SLOTS: Slot[] = ["top", "bottom", "shoes", "outerwear", "accessory"];
 export const PAIRABLE: Slot[] = ["top", "bottom", "shoes", "outerwear"];
 
+const LOOK_ENV: Record<Variant, string> = {
+  white: "Keep the white studio background exactly as it is.",
+  dark: "Change the background to a seamless dark charcoal photo studio with a soft rim light behind him and a soft floor shadow; relight him to match.",
+  nature: "Change the background to a bright white photo studio decorated with potted olive trees, monstera plants, tall grasses and sandstone rocks around him; keep the lighting soft and bright.",
+};
+
 export type Paired = { slot: Slot; name: string };
 
 const SLOT_PHRASE: Record<Slot, (n: number) => string> = {
@@ -28,12 +32,8 @@ const SLOT_PHRASE: Record<Slot, (n: number) => string> = {
   accessory: (n) => `Image ${n} shows an accessory: add exactly this accessory.`,
 };
 
-/**
- * One generation per try-on: the person wearing the fit, isolated on a transparent alpha. The variants are then
- * flat composites of this cutout (src/images.ts `background`), so a look costs one model call instead of one per variant.
- * Image 1 = base photo, image 2 = the garment, images 3.. = pieces from the wardrobe it is paired with.
- */
-export function buildLookPrompt(paired: Paired[] = [], category: string | null = null): string {
+/** Single look: image 1 = base photo, image 2 = the garment, images 3.. = pieces from the wardrobe it is paired with. */
+export function buildLookPrompt(variant: Variant, paired: Paired[] = [], category: string | null = null): string {
   const fam = familyOf(category);
   const slots = slotsOf(category);
   // What the main garment does to the base outfit (plain t-shirt, jeans, white sneakers), by family.
@@ -51,7 +51,7 @@ export function buildLookPrompt(paired: Paired[] = [], category: string | null =
               ? "Add exactly the accessory from the second image, worn the natural way; keep his t-shirt, jeans and shoes."
               : "Replace his t-shirt with exactly the top from the second image, worn as the outermost layer; keep his jeans and shoes.";
   const pairs = paired.map((p, i) => `${SLOT_PHRASE[p.slot](i + 3)} (${p.name})`).join(" ");
-  return `The first image is a photo of a person, the second image shows a garment (${category ?? "a piece of clothing"}). Edit the first image. ${wear} The garment must be reproduced exactly (color, fabric, logos, cut, stripes, prints). ${pairs ? pairs + " Each of these pieces must be reproduced exactly as shown (color, materials, logos, shape). " : ""}Keep his face, hair, skin, body proportions, pose, hands and everything not replaced by one of the images exactly as in the first image, and keep the framing identical. Output ONLY the person, fully isolated on an actual fully transparent alpha background: no backdrop, no floor, no cast shadow, no rectangle, nothing behind or around him. Preserve the fine edges of hair and fabric. Photorealistic e-commerce quality, no text.`;
+  return `The first image is a photo of a person, the second image shows a garment (${category ?? "a piece of clothing"}). Edit the first image. ${wear} The garment must be reproduced exactly (color, fabric, logos, cut, stripes, prints). ${pairs ? pairs + " Each of these pieces must be reproduced exactly as shown (color, materials, logos, shape). " : ""}Keep his face, hair, skin, body proportions, pose, hands and everything not replaced by one of the images exactly as in the first image, and keep the framing identical. ${LOOK_ENV[variant] ?? LOOK_ENV.white} Photorealistic e-commerce quality, no text.`;
 }
 
 /** Wardrobe product shots: image 1 = the uploaded piece (a phone photo, worn, on a hanger, or on a busy background). */

@@ -20,7 +20,7 @@ import { imageKeys, storeImage } from "./images";
 import { CATEGORIES, HERO_STYLES, PAIRABLE, VARIANTS, slotsOf, type HeroStyle, type Slot, type Variant } from "./prompts";
 import { analyzeGarment, DEFAULT_GEMINI_MODEL, type Analysis } from "./gemini";
 import { CATEGORIES_BY_FAMILY, detailFills, familyOf, labelOf, missingSlots } from "./taxonomy";
-import { compositeLook, getSetting, handleQueue } from "./jobs";
+import { getSetting, handleQueue } from "./jobs";
 import { BudgetError, interruptedStatements, precheck, reserve, spent, sweep } from "./budget";
 import type { Job } from "./env";
 
@@ -475,7 +475,7 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
   // Once a piece is committed its kind is fixed: a try-on piece stays a try-on piece (its looks are made), an owned piece stays owned.
   const owned = g.draft === 1 && typeof b.owned === "boolean" ? (b.owned ? 1 : 0) : g.owned;
   const wasDraft = g.draft === 1;
-  if (wasDraft) await precheck(c.env, "image", owned ? 2 : 1); // a try-on is one transparent generation; the variants are composites
+  if (wasDraft) await precheck(c.env, "image", owned ? 2 : VARIANTS.length);
 
   // Pairing: at most one wardrobe piece per slot, and only slots this piece does not cover itself.
   const covers = slotsOf(category);
@@ -505,10 +505,8 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
   if (committed && !owned) {
     const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "look");
     const lookIds = VARIANTS.map(() => randomId(9));
-    const t = now();
-    await c.env.DB.batch(VARIANTS.map((v, i) => c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(lookIds[i], id, v, `${IMAGE_MODEL}:${quality}`, t, JSON.stringify(pairing))));
-    // One message: the consumer generates the cutout once and composites every variant queued at this moment.
-    await c.env.JOBS.send({ kind: "look", id: lookIds[0] } satisfies Job);
+    await c.env.DB.batch(VARIANTS.map((v, i) => c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(lookIds[i], id, v, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing))));
+    await Promise.all(lookIds.map((lid) => c.env.JOBS.send({ kind: "look", id: lid } satisfies Job)));
   }
   return c.json(await garmentWithLooks(c.env, id), committed ? 202 : 200);
 });
@@ -543,10 +541,9 @@ app.delete("/api/garments/:id", requireAuth, async (c) => {
   const id = c.req.param("id");
   const g = await c.env.DB.prepare("SELECT r2_key, studio_key, studio_alt_key FROM garments WHERE id = ?").bind(id).first<{ r2_key: string; studio_key: string | null; studio_alt_key: string | null }>();
   if (!g) return c.json({ ok: true });
-  const looks = await c.env.DB.prepare("SELECT r2_key, cutout_key FROM looks WHERE garment_id = ? AND (r2_key IS NOT NULL OR cutout_key IS NOT NULL)").bind(id).all<{ r2_key: string | null; cutout_key: string | null }>();
-  const cutouts = Array.from(new Set(looks.results.map((l) => l.cutout_key).filter((k): k is string => !!k)));
+  const looks = await c.env.DB.prepare("SELECT r2_key FROM looks WHERE garment_id = ? AND r2_key IS NOT NULL").bind(id).all<{ r2_key: string }>();
   const studio = [...(g.studio_key && g.studio_key !== g.r2_key ? imageKeys(g.studio_key) : []), ...imageKeys(g.studio_alt_key)];
-  await c.env.IMAGES.delete([...imageKeys(g.r2_key), ...studio, ...looks.results.flatMap((l) => imageKeys(l.r2_key)), ...cutouts]);
+  await c.env.IMAGES.delete([...imageKeys(g.r2_key), ...studio, ...looks.results.flatMap((l) => imageKeys(l.r2_key))]);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM looks WHERE garment_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM garments WHERE id = ?").bind(id),
@@ -599,19 +596,10 @@ app.post("/api/garments/:id/looks", requireAuth, async (c) => {
   // A variant exists once: never a duplicate while one is finished or still in flight (looks are not regenerated).
   const existing = await c.env.DB.prepare("SELECT status FROM looks WHERE garment_id = ? AND variant = ? AND status IN ('done', 'pending') LIMIT 1").bind(gid, variant).first<{ status: string }>();
   if (existing) throw new Conflict(existing.status === "done" ? `the ${variant} look already exists` : `the ${variant} look is already being generated`);
-  const pairing = Array.isArray(b.pairing) ? b.pairing.filter((x): x is string => typeof x === "string" && ID_RE.test(x)).slice(0, 4) : [];
-  const id = randomId(9);
-  // If the garment already has a cutout for this pairing, the variant is a free composite: no model call, no budget.
-  const src = await c.env.DB.prepare("SELECT cutout_key, model, pairing FROM looks WHERE garment_id = ? AND cutout_key IS NOT NULL AND status = 'done' AND COALESCE(pairing, '[]') = ? ORDER BY created_at DESC LIMIT 1").bind(gid, JSON.stringify(pairing)).first<{ cutout_key: string; model: string; pairing: string | null }>();
-  if (src) {
-    await c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing, started_at) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?, ?)").bind(id, gid, variant, src.model, now(), JSON.stringify(pairing), now()).run();
-    try { await compositeLook(c.env, { id, variant }, src.cutout_key); }
-    catch (e: any) { await c.env.DB.prepare("UPDATE looks SET status = 'error', error = ? WHERE id = ?").bind(String(e?.message ?? e).slice(0, 500), id).run(); }
-    const done = await c.env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<LookRow>();
-    return c.json(lookOut(done!), 200);
-  }
   await precheck(c.env, "image", 1);
   const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "look");
+  const pairing = Array.isArray(b.pairing) ? b.pairing.filter((x): x is string => typeof x === "string" && ID_RE.test(x)).slice(0, 4) : [];
+  const id = randomId(9);
   await c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(id, gid, variant, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing)).run();
   await c.env.JOBS.send({ kind: "look", id } satisfies Job);
   const look = await c.env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<LookRow>();
