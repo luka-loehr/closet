@@ -56,22 +56,22 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   T("oxford-shirt", "Oxford shirt", "tops"), T("flannel-shirt", "Flannel shirt", "tops"), T("overshirt", "Overshirt", "tops"),
   T("sweatshirt", "Sweatshirt", "tops"), T("crewneck", "Crewneck", "tops"), T("hoodie", "Hoodie", "tops"), T("zip-hoodie", "Zip hoodie", "tops"),
   T("quarter-zip", "Quarter-zip", "tops"), T("sweater", "Sweater", "tops"), T("cardigan", "Cardigan", "tops"), T("turtleneck", "Turtleneck", "tops"),
-  T("fleece", "Fleece", "tops"), T("top", "Top (other)", "tops"),
+  T("fleece", "Fleece", "tops"), T("top", "Top", "tops"),
   // outerwear
   T("jacket", "Jacket", "outerwear"), T("bomber-jacket", "Bomber jacket", "outerwear"), T("puffer-jacket", "Puffer jacket", "outerwear"), T("down-vest", "Down vest", "outerwear"),
   T("parka", "Parka", "outerwear"), T("trench-coat", "Trench coat", "outerwear"), T("overcoat", "Overcoat", "outerwear"),
   T("denim-jacket", "Denim jacket", "outerwear"), T("leather-jacket", "Leather jacket", "outerwear"), T("track-jacket", "Track jacket", "outerwear"), T("windbreaker", "Windbreaker", "outerwear"),
   T("blazer", "Blazer", "outerwear"), T("varsity-jacket", "Varsity jacket", "outerwear"),
   T("fleece-jacket", "Fleece jacket", "outerwear"), T("shacket", "Shacket", "outerwear"), T("gilet", "Gilet", "outerwear"),
-  T("coat", "Coat (other)", "outerwear"), T("outerwear", "Outerwear (other)", "outerwear"),
+  T("coat", "Coat", "outerwear"), T("outerwear", "Outerwear", "outerwear"),
   // bottoms
   T("jeans", "Jeans", "bottoms"), T("chinos", "Chinos", "bottoms"), T("trousers", "Trousers", "bottoms"), T("dress-pants", "Dress pants", "bottoms"),
   T("cargo-pants", "Cargo pants", "bottoms"), T("track-pants", "Track pants", "bottoms"), T("sweatpants", "Sweatpants", "bottoms"), T("joggers", "Joggers", "bottoms"),
   T("leggings", "Leggings", "bottoms"),
   T("shorts", "Shorts", "bottoms"), T("denim-shorts", "Denim shorts", "bottoms"), T("cargo-shorts", "Cargo shorts", "bottoms"),
-  T("swim-shorts", "Swim shorts", "bottoms"), T("skirt", "Skirt", "bottoms", { alt: "SHOT 2 'waistband detail': the skirt laid flat, front side up, photographed from directly above; a tight crop centred on the waistband across the upper third of the frame, fabric texture crisply readable" }), T("bottoms", "Bottoms (other)", "bottoms"),
+  T("swim-shorts", "Swim shorts", "bottoms"), T("skirt", "Skirt", "bottoms", { alt: "SHOT 2 'waistband detail': the skirt laid flat, front side up, photographed from directly above; a tight crop centred on the waistband across the upper third of the frame, fabric texture crisply readable" }), T("bottoms", "Bottoms", "bottoms"),
   // sets
-  T("tracksuit", "Tracksuit", "sets"), T("suit", "Suit", "sets", { slots: ["top", "bottom", "outerwear"] }), T("co-ord-set", "Co-ord set", "sets"), T("set", "Set (other)", "sets"),
+  T("tracksuit", "Tracksuit", "sets"), T("suit", "Suit", "sets", { slots: ["top", "bottom", "outerwear"] }), T("co-ord-set", "Co-ord set", "sets"), T("set", "Set", "sets"),
   // dresses & one-pieces
   T("dress", "Dress", "dresses"), T("jumpsuit", "Jumpsuit", "dresses"), T("overalls", "Overalls", "dresses"),
   // shoes
@@ -79,14 +79,14 @@ export const CATEGORY_DEFS: CategoryDef[] = [
   T("boots", "Boots", "shoes"), T("chelsea-boots", "Chelsea boots", "shoes"),
   T("hiking-boots", "Hiking boots", "shoes"), T("loafers", "Loafers", "shoes"), T("derby-shoes", "Derby shoes", "shoes"),
   T("oxford-shoes", "Oxford shoes", "shoes"), T("dress-shoes", "Dress shoes", "shoes"), T("sandals", "Sandals", "shoes", { alt: "SHOT 2 'top-down pair': both shoes side by side and touching, toes pointing up, photographed from directly above, the pair centred in the frame" }), T("slides", "Slides", "shoes", { alt: "SHOT 2 'top-down pair': both shoes side by side and touching, toes pointing up, photographed from directly above, the pair centred in the frame" }),
-  T("flip-flops", "Flip-flops", "shoes", { alt: "SHOT 2 'top-down pair': both shoes side by side and touching, toes pointing up, photographed from directly above, the pair centred in the frame" }), T("shoes", "Shoes (other)", "shoes"),
+  T("flip-flops", "Flip-flops", "shoes", { alt: "SHOT 2 'top-down pair': both shoes side by side and touching, toes pointing up, photographed from directly above, the pair centred in the frame" }), T("shoes", "Shoes", "shoes"),
   // accessories
-  T("cap", "Cap", "accessories", { main: "SHOT 1 'three-quarter front': the cap standing on its brim, photographed from a three-quarter front angle slightly above, the front panel and brim facing the lower-left corner of the frame, centred", alt: "SHOT 2 'front detail': a tight close-up straight on of the front panel embroidery or logo, centred" }), T("beanie", "Beanie", "accessories"), T("bucket-hat", "Bucket hat", "accessories"), T("hat", "Hat (other)", "accessories"),
+  T("cap", "Cap", "accessories", { main: "SHOT 1 'three-quarter front': the cap standing on its brim, photographed from a three-quarter front angle slightly above, the front panel and brim facing the lower-left corner of the frame, centred", alt: "SHOT 2 'front detail': a tight close-up straight on of the front panel embroidery or logo, centred" }), T("beanie", "Beanie", "accessories"), T("bucket-hat", "Bucket hat", "accessories"), T("hat", "Hat", "accessories"),
   T("scarf", "Scarf", "accessories"), T("gloves", "Gloves", "accessories"), T("belt", "Belt", "accessories", { main: "SHOT 1 'coil': the belt coiled loosely and photographed from directly above, the buckle on top facing the camera, centred", alt: "SHOT 2 'buckle detail': a tight close-up from directly above of the buckle and the belt tip, centred" }), T("tie", "Tie", "accessories"),
   T("sunglasses", "Sunglasses", "accessories"), T("watch", "Watch", "accessories"), T("necklace", "Necklace", "accessories"),
   T("bracelet", "Bracelet", "accessories"), T("ring", "Ring", "accessories"), T("socks", "Socks", "accessories"),
   T("backpack", "Backpack", "accessories"), T("tote-bag", "Tote bag", "accessories"), T("crossbody-bag", "Crossbody bag", "accessories"),
-  T("wallet", "Wallet", "accessories"), T("accessory", "Accessory (other)", "accessories"),
+  T("wallet", "Wallet", "accessories"), T("accessory", "Accessory", "accessories"),
   // other
   T("underwear", "Underwear", "other"), T("swimwear", "Swimwear", "other", { slots: ["bottom"] }), T("other", "Other", "other"),
 ];
