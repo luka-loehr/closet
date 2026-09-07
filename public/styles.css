@@ -108,7 +108,6 @@ img { display: block; max-width: 100%; }
 .card .variants { display: inline-flex; gap: 6px; margin-top: 9px; }
 .dot { width: 9px; height: 9px; border-radius: 2px; border: 1px solid #bbb; background: #fff; }
 .dot.dark { background: #1a1a1a; border-color: #1a1a1a; }
-.dot.nature { background: linear-gradient(135deg, #fff 45%, #7fae72 45%); }
 .dot.off { opacity: .25; }
 .skeleton { background: linear-gradient(90deg, #f1f1f0 25%, #e6e6e4 50%, #f1f1f0 75%); background-size: 200% 100%; animation: shimmer 1.6s infinite; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -176,7 +175,7 @@ textarea.input { height: auto; padding: 10px 14px; resize: vertical; min-height:
 @media (max-width: 900px) { .addwrap { grid-template-columns: 1fr; } }
 .source-tile { aspect-ratio: 1; background: var(--tile); border-radius: 2px; display: grid; place-items: center; overflow: hidden; }
 .source-tile img { width: 100%; height: 100%; object-fit: contain; padding: 8%; }
-.gen-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.gen-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 720px) { .gen-grid { grid-template-columns: 1fr; } }
 
 /* ---------- viewer ---------- */
@@ -189,7 +188,7 @@ body.noscroll { overflow: hidden; }
 .v-meta { text-transform: uppercase; letter-spacing: .12em; font-size: 11px; color: var(--muted); margin-top: 5px; }
 .v-close { font-size: 34px; line-height: 1; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; transition: background var(--t-fast), transform var(--t) var(--ease); }
 .v-close:hover { background: #f0f0ef; transform: rotate(90deg); }
-.v-row { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: center; }
+.v-row { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: center; max-width: 1100px; width: 100%; margin: 0 auto; }
 .v-panel { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; min-height: 0; height: 100%; justify-content: center; opacity: 0; transform: translateY(14px); animation: v-in .7s var(--ease-out) forwards; animation-delay: calc(var(--i) * 110ms + 140ms); }
 .viewer.instant .v-panel { animation-delay: calc(var(--i) * 60ms); }
 @keyframes v-in { to { opacity: 1; transform: none; } }

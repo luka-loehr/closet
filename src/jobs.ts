@@ -1,8 +1,9 @@
 import type { Env, Job } from "./env";
 import { editImage, IMAGE_MODEL, type ImageInput, type Quality } from "./openai";
 import { storeImage } from "./images";
+import { flattenPng } from "./png";
 import { BudgetError, reserve } from "./budget";
-import { buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioViews, type HeroStyle, type Paired, type Slot, type Variant } from "./prompts";
+import { buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioViews, VARIANT_BACKGROUND, type HeroStyle, type Paired, type Slot, type Variant } from "./prompts";
 
 // Generation runs here, on the queue consumer, so a closed tab cannot cancel it.
 // The HTTP layer only inserts a pending row and enqueues { kind, id }; the client polls.
@@ -70,24 +71,51 @@ async function loadPairing(env: Env, pairing: string | null): Promise<{ images: 
   return { images, paired: pieces.map((p) => ({ slot: slotsOf(p.category)[0] ?? "accessory", name: p.name })) };
 }
 
+type LookRow = { id: string; garment_id: string; variant: string; model: string; status: string; pairing: string | null; created_at: number };
+
+/** Flatten a cutout onto the variant's colour and mark the look done. No model call, no budget. */
+export async function compositeLook(env: Env, look: { id: string; variant: string }, cutoutKey: string, cutout?: ArrayBuffer, prompt: string | null = null, ms = 0): Promise<void> {
+  const bytes = cutout ?? (await loadR2Image(env, cutoutKey)).bytes;
+  const bg = VARIANT_BACKGROUND[look.variant as Variant] ?? VARIANT_BACKGROUND.white;
+  // Flatten in plain JS (src/png.ts): the Images binding's background/draw are not available in every runtime.
+  const flat = await flattenPng(bytes, bg);
+  const stored = await storeImage(env, `looks/${look.id}`, flat.buffer as ArrayBuffer, "image/png", { thumb: true });
+  await env.DB.prepare("UPDATE looks SET status = 'done', r2_key = ?, thumb_key = ?, cutout_key = ?, prompt = ?, duration_ms = ? WHERE id = ?").bind(stored.key, stored.thumb_key, cutoutKey, prompt, ms, look.id).run();
+}
+
 async function runLook(env: Env, id: string): Promise<void> {
   // Claim: exactly one consumer invocation gets changes = 1 for this row.
   const claim = await env.DB.prepare("UPDATE looks SET started_at = ? WHERE id = ? AND status = 'pending' AND started_at IS NULL").bind(now(), id).run();
   if (!claim.meta.changes) return;
-  const look = await env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<{ id: string; garment_id: string; variant: string; model: string; status: string; pairing: string | null }>();
+  const look = await env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<LookRow>();
   if (!look) return;
+  // The other variants queued with this one (same garment, pairing and moment) are composited from the same cutout.
+  const siblings = (await env.DB.prepare("SELECT * FROM looks WHERE garment_id = ? AND id != ? AND status = 'pending' AND started_at IS NULL AND created_at = ? AND COALESCE(pairing, '[]') = COALESCE(?, '[]')").bind(look.garment_id, id, look.created_at, look.pairing).all<LookRow>()).results;
+  const claimed: LookRow[] = [];
+  for (const sib of siblings) {
+    const c = await env.DB.prepare("UPDATE looks SET started_at = ? WHERE id = ? AND status = 'pending' AND started_at IS NULL").bind(now(), sib.id).run();
+    if (c.meta.changes) claimed.push(sib);
+  }
+  const all = [look, ...claimed];
   try {
     const g = await env.DB.prepare("SELECT r2_key, category FROM garments WHERE id = ?").bind(look.garment_id).first<{ r2_key: string; category: string | null }>();
     if (!g) throw new Error("garment was deleted");
     const base = await baseReference(env);
     const [person, garment, pairing] = await Promise.all([loadR2Image(env, base.r2_key), loadR2Image(env, g.r2_key), loadPairing(env, look.pairing)]);
-    const prompt = buildLookPrompt(look.variant as Variant, pairing.paired, g.category);
+    const prompt = buildLookPrompt(pairing.paired, g.category);
     await reserveImages(env, 1);
-    const r = await editImage({ key: env.OPENAI_API_KEY, images: [person, garment, ...pairing.images], prompt, size: LOOK_SIZE, quality: qualityOf(look.model) });
-    const stored = await storeImage(env, `looks/${id}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true });
-    await env.DB.prepare("UPDATE looks SET status = 'done', r2_key = ?, thumb_key = ?, prompt = ?, duration_ms = ? WHERE id = ?").bind(stored.key, stored.thumb_key, prompt, r.ms, id).run();
+    const r = await editImage({ key: env.OPENAI_API_KEY, images: [person, garment, ...pairing.images], prompt, size: LOOK_SIZE, quality: qualityOf(look.model), transparent: true });
+    // The cutout is stored untouched (PNG with alpha) so any variant can be rebuilt without a model call.
+    const cutoutKey = `cutouts/${look.garment_id}-${id}.png`;
+    const cutout = r.bytes.buffer as ArrayBuffer;
+    await env.IMAGES.put(cutoutKey, cutout, { httpMetadata: { contentType: "image/png", cacheControl: "private, max-age=31536000, immutable" } });
+    for (const l of all) {
+      try { await compositeLook(env, l, cutoutKey, cutout, prompt, r.ms); }
+      catch (e: any) { await env.DB.prepare("UPDATE looks SET status = 'error', error = ? WHERE id = ?").bind(String(e?.message ?? e).slice(0, 500), l.id).run(); }
+    }
   } catch (e: any) {
-    await env.DB.prepare("UPDATE looks SET status = 'error', error = ? WHERE id = ?").bind(String(e?.message ?? e).slice(0, 500), id).run();
+    const msg = String(e?.message ?? e).slice(0, 500);
+    for (const l of all) await env.DB.prepare("UPDATE looks SET status = 'error', error = ? WHERE id = ?").bind(msg, l.id).run();
   }
 }
 

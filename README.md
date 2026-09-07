@@ -30,16 +30,21 @@ nothing runs outside Cloudflare except the image model.
 
 ## 1. What it does
 
-Every garment you add becomes three **looks**. Each look is a single
-`images/edits` call: the approved base full-body photo is the first
-input, the garment photo the second, and the model is told to dress the
-person in the garment and change only the background. Nothing about the
-face is ever described in words — the base photo carries the identity.
+Every garment you add becomes two **looks**, on pure white and pure
+black. Both come from one `images/edits` call: the approved base
+full-body photo is the first input, the garment photo the second, and
+the model is told to dress the person in the garment and return him
+isolated on a transparent alpha (`background: "transparent"`, in preview
+for gpt-image-2). The Worker then flattens that cutout onto each colour
+with a small PNG codec of its own ([`src/png.ts`](src/png.ts)) and
+stores the results as WebP. The cutout is kept, so a missing variant is
+rebuilt without another model call. Nothing about the face is ever
+described in words — the base photo carries the identity.
 
 | output | inputs | size | quality | wall time |
 | --- | --- | ---: | --- | ---: |
 | analysis (form + what is missing) | garment photo | — | Gemini 3.8 Flash, thinking off | ≈ 3 s |
-| look (white · dark · nature) | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 40 s |
+| look cutout (transparent) → white + black composites | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 45 s |
 | studio shots of an owned piece (two for shoes) | my phone photo | 1024×1024 | medium | ≈ 30 s each |
 | campaign cover | base photo + 2–3 garments | 1920×1088 (16:9) | high | ≈ 90 s |
 
@@ -159,6 +164,7 @@ Cloudflare Worker — Hono router (src/index.ts)
 | `src/gemini.ts` | The analysis pass: response schema, thinking off, slot logic for what a fit is missing. |
 | `src/prompts.ts` | The prompt library: categories and slots, look prompt with pairing phrases, studio-shot prompt, seven campaign scenes. |
 | `src/images.ts` | WebP conversion and thumbnailing through the Images binding; key bookkeeping for deletes. |
+| `src/png.ts` | PNG decode → alpha flatten onto a flat colour → PNG encode, in plain JS (the Images binding's `background`/`draw` are not available in every runtime). |
 | `client/` | The single-page client, bundled by `esbuild` into `public/app.js`. |
 | `public/` | `index.html`, `styles.css`, and the built bundle (ignored). |
 | `migrations/` | D1 schema: sessions, codes, challenges, passkeys, reference photos, garments, looks, heroes, settings. |
@@ -237,10 +243,9 @@ only thing the model is asked to do:
    jeans, shoes only the shoes. Paired pieces from the wardrobe follow
    as images three onwards, each with a one-line slot instruction
    ("image 3 shows shoes: replace his shoes with exactly these shoes").
-3. **The variant changes only the environment.** White keeps the studio
-   as is; dark relights him in a charcoal studio with a rim light;
-   nature dresses the white studio with olive trees, monstera, grasses
-   and sandstone.
+3. **The variants are flat colours, not scenes.** The model returns the
+   person isolated on transparency; white and black are composited in
+   the Worker, pixel-exact, no shadow, no gradient.
 4. **Covers are the same person two or three times in one frame**, each
    in one garment, in one of seven scenes (NYC, beach, wheel, wall,
    rooftop, garage, studio), full bodies, wide landscape.
@@ -255,7 +260,7 @@ history.
 | Store | Name | Holds |
 | --- | --- | --- |
 | D1 | `closet` | `garments`, `looks`, `heroes`, `reference_photos`, `settings`, plus `sessions`, `email_codes`, `challenges`, `passkeys`. |
-| R2 | `closet-images` | `garments/<id>.webp`, `studio/<id>.webp` (+ `-alt` for shoes), `looks/<id>.webp`, `heroes/<id>.webp`, `refs/<id>` and their `.t.webp` thumbnails. |
+| R2 | `closet-images` | `garments/<id>.webp`, `studio/<id>.webp` (+ `-alt` for shoes), `cutouts/<garment>-<look>.png`, `looks/<id>.webp`, `heroes/<id>.webp`, `refs/<id>` and their `.t.webp` thumbnails. |
 | Queue | `closet-jobs` | `{ kind: "look" \| "hero", id }` messages, consumed in-Worker. |
 | Images | binding `IMG` | Write-time WebP conversion; serving never touches it. |
 
@@ -279,6 +284,7 @@ Choices that shaped the current build, with the reason they stuck.
 | plain uppercase text nav with a sliding underline | replaced a gooey-nav port that added weight without adding clarity |
 | passkeys first, e-mail code as the bootstrap | one allowed address, no passwords to store, works from the phone |
 | `max_retries: 0` on the queue | a failed edit costs real money; record the error and let a human decide |
+| one transparent generation per try-on, variants composited in the Worker | a look costs one model call instead of one per variant (~7 ¢ instead of ~20 ¢); white and black are flat colours with no shadow, so compositing is exact |
 | analysis before generation, Gemini Flash with thinking off | the form is filled and the missing slots known in ~3 s; nothing is generated until I have reviewed it |
 | draft rows instead of holding the upload client-side | the image is uploaded once, and a discarded draft is a plain delete |
 | one wardrobe table, not a second entity | an owned piece and a try-on piece share cataloguing, images and deletion; `owned` is a flag |

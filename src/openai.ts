@@ -22,7 +22,7 @@ function bytesToB64(buf: ArrayBuffer): string {
 }
 
 /** images/edits: the first image is the subject, the rest are garments. Returns PNG bytes. */
-export async function editImage(opts: { key: string; images: ImageInput[]; prompt: string; size: string; quality: Quality }): Promise<EditResult> {
+export async function editImage(opts: { key: string; images: ImageInput[]; prompt: string; size: string; quality: Quality; transparent?: boolean }): Promise<EditResult> {
   const fd = new FormData();
   fd.append("model", IMAGE_MODEL);
   fd.append("prompt", opts.prompt);
@@ -30,6 +30,7 @@ export async function editImage(opts: { key: string; images: ImageInput[]; promp
   fd.append("quality", opts.quality);
   fd.append("n", "1");
   fd.append("output_format", "png");
+  if (opts.transparent) fd.append("background", "transparent"); // preview on gpt-image-2; PNG keeps the alpha channel
   opts.images.forEach((im, i) => fd.append("image[]", new Blob([im.bytes], { type: im.mime }), im.name ?? `image-${i + 1}.${im.mime === "image/png" ? "png" : "jpg"}`));
   const t0 = Date.now();
   // A hung edit must not hold a queue invocation open for its full 15 minutes: covers take ~90 s at most.
