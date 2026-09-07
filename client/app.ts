@@ -1,5 +1,5 @@
 import { startAuthentication, startRegistration, browserSupportsWebAuthn, browserSupportsWebAuthnAutofill } from "@simplewebauthn/browser";
-import { CATEGORIES_BY_FAMILY, FAMILY_LABEL, FAMILY_ORDER, detailFills, familyOf, labelOf, slotsOf as taxSlots } from "../src/taxonomy";
+import { CATEGORIES_BY_FAMILY, FAMILY_LABEL, FAMILY_ORDER, detailFills, familyOf, labelOf, missingSlots, slotsOf as taxSlots } from "../src/taxonomy";
 
 // ---------- types ----------
 type Look = { id: string; garment_id: string; variant: string; pose: string; model: string; status: string; r2_key: string | null; thumb_key: string | null; error: string | null; duration_ms: number | null; created_at: number; pairing?: string[] };
@@ -448,14 +448,12 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
   $("#add-name")!.classList.remove("analysing");
   const wardrobe = own ? [] : await api<Garment[]>("/api/garments?limit=300&owned=1");
   const settings = await getSettings();
-  const covered = new Set(slotsOf(g.category));
-  const slotsToPick = own ? [] : settings.slots.filter((sl) => !covered.has(sl) && (g.missing.includes(sl) || wardrobe.some((w) => slotsOf(w.category).includes(sl))));
+  const slotsToPick: string[] = own ? [] : settings.slots;
   const pick: Record<string, string | null> = {};
   const pickerRow = (slot: string) => {
     const options = wardrobe.filter((w) => slotsOf(w.category).includes(slot));
-    const missing = g.missing.includes(slot);
-    return `<div class="slotrow" data-slot="${slot}">
-      <div class="slothead"><span class="caps">${SLOT_LABEL[slot] ?? slot}</span>${missing ? `<span class="tag-missing">Missing from this fit</span>` : `<span class="muted" style="font-size:11px">Optional</span>`}</div>
+    return `<div class="slotrow" data-slot="${slot}" ${(missingSlots(g.category) as string[]).includes(slot) ? "" : "hidden"}>
+      <div class="slothead"><span class="caps">${SLOT_LABEL[slot] ?? slot}</span><span class="tag-missing">Missing from this fit</span></div>
       <div class="slotpick">
         <button type="button" class="pick none on" data-slot="${slot}" data-id="" title="Keep what the base photo wears"><span>Keep<br>base</span></button>
         ${options.map((w) => `<button type="button" class="pick" data-slot="${slot}" data-id="${w.id}" title="${esc(w.name)}">${pieceImg(w) ? `<img src="${pieceImg(w)}" alt="" />` : `<span>${esc(w.name.split(" ").slice(0, 2).join(" "))}</span>`}</button>`).join("")}
@@ -475,7 +473,7 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
       <div class="field"><label>Description</label><textarea class="input" name="description" maxlength="300" rows="2">${esc(g.description ?? "")}</textarea></div>
       <div class="field"><label>Product link <em class="muted">· where to buy it, optional</em></label><input class="input" name="source_url" type="url" value="${esc(g.source_url ?? "")}" placeholder="https://…" /></div>
     </div>
-    ${slotsToPick.length ? `<div class="complete"><div class="section-head" style="margin:6px 0 10px"><h2>Complete the fit</h2><span class="muted" style="font-size:11px">Pieces from your closet are worn with it</span></div>${slotsToPick.map(pickerRow).join("")}</div>` : ""}
+    ${slotsToPick.length ? `<div class="complete" ${missingSlots(g.category).length ? "" : "hidden"}><div class="section-head" style="margin:6px 0 10px"><h2>Complete the fit</h2><span class="muted" style="font-size:11px">Pieces from your closet are worn with it; the base tee, jeans and sneakers fill the rest</span></div>${slotsToPick.map(pickerRow).join("")}</div>` : ""}
     <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? "Two studio views on white are generated from your photo in the background (~40 s): the piece and a detail shot, or for shoes the side and three-quarter view. Your photo itself is never shown." : "Three looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
   const colorsIn = $<HTMLInputElement>("[name=colors]", form)!;
   colorsIn.addEventListener("input", () => { const cs = colorsIn.value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 3); $("#sw")!.innerHTML = cs.map((c) => `<i style="background:${esc(swatch(c))}"></i>`).join(""); });
@@ -485,9 +483,10 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
     $$(`.pick[data-slot="${slot}"]`, form).forEach((x) => x.classList.toggle("on", x === b));
   }));
   $<HTMLSelectElement>("[name=category]", form)!.addEventListener("change", (e) => {
-    // Changing the category changes which slots the piece covers; hide pickers it now covers.
-    const cov = new Set(slotsOf((e.target as HTMLSelectElement).value));
-    $$(".slotrow", form).forEach((r) => { const sl = (r as HTMLElement).dataset.slot!; r.hidden = cov.has(sl); if (cov.has(sl)) pick[sl] = null; });
+    // Changing the category changes which slots a full fit still needs; show exactly those pickers.
+    const need = new Set<string>(missingSlots((e.target as HTMLSelectElement).value));
+    $$(".slotrow", form).forEach((r) => { const sl = (r as HTMLElement).dataset.slot!; r.hidden = !need.has(sl); if (!need.has(sl)) { pick[sl] = null; $$(`.pick[data-slot="${sl}"]`, form).forEach((x, i) => x.classList.toggle("on", i === 0)); } });
+    const c = $(".complete", form); if (c) c.hidden = need.size === 0;
   });
   $("#cancel", form)!.addEventListener("click", async () => { await api(`/api/garments/${g.id}`, { method: "DELETE" }).catch(() => {}); navigate(own ? "/add?own=1" : "/add", true); });
   $("#submit", form)!.addEventListener("click", async () => {

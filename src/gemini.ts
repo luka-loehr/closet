@@ -1,10 +1,10 @@
 import type { Env } from "./env";
 import type { ImageInput } from "./openai";
-import { CATEGORIES, SLOTS, type Category, type Slot } from "./prompts";
+import { CATEGORIES, type Category, type Slot } from "./prompts";
 import { CATEGORIES_BY_FAMILY } from "./taxonomy";
 
 // The fast vision pass that runs before anything is generated: it fills the add form
-// (name, brand, category, colours, description) and says which slots a complete fit still needs.
+// (name, brand, category, colours, description); which slots a fit still needs is a rule of the category (src/taxonomy.ts).
 // Gemini Flash with thinking off and a response schema: ~2-3 s, no reasoning tokens.
 
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
@@ -22,31 +22,29 @@ export type Analysis = {
   ms: number;
 };
 
-const PROMPT = `You catalogue garments for a private virtual try-on closet. Look at the image and fill the schema.
+const PROMPT = `You catalogue garments for a private virtual try-on closet. Look at the image and fill every field of the schema.
 - name: short webshop-style product name in Title Case, max 6 words (e.g. "Navy Track Jacket & Pants Set").
 - brand: the brand if a logo, label or an unmistakable design signature is visible, else null. Never guess.
 - category: the single most specific id from this fixed taxonomy (never invent one; use the family's "(other)" id only when nothing fits):
 ${CATEGORIES_BY_FAMILY.map((f) => `  ${f.label}: ${f.categories.map((c) => c.id).join(", ")}`).join("\n")}
   A matching jacket and trousers sold together is a tracksuit or co-ord-set; sneakers of any kind are "sneakers" unless clearly running, basketball, skate or trail shoes.
-- colors: an array of 1 to 3 separate entries, one colour word each, most dominant first (e.g. ["navy", "white"]). Never put two colours in one entry.
-- description: one sentence about cut, fabric and notable details, always filled in. No marketing language.
-- covers: the body slots this piece covers when worn (top, bottom, shoes, outerwear, accessory).
-- missing: the slots a complete outfit still needs when this piece is worn over the wearer's default of a plain t-shirt, jeans and white sneakers. List only slots that this piece does not cover and that matter for a full fit. Never list outerwear or accessory as missing. A set of jacket and trousers is missing only shoes; shoes are missing top and bottom; a hoodie is missing bottom and shoes.
+- colors: 1 to 3 array entries, most dominant first. Each entry is exactly ONE colour (one or two words such as "black", "light grey", "off-white"). A two-tone piece is two entries: ["black", "grey"], never "black and grey".
+- description: one complete sentence (20 to 300 characters) about cut, fabric and notable details. No marketing language. Never empty.
 - clean_product_shot: true if the image shows the garment alone on a plain white or neutral background (flat lay, ghost mannequin, product shot). False if a person wears it or the background is a real scene.`;
 
-const SCHEMA = {
-  type: "OBJECT",
+// Full JSON Schema (generationConfig.responseJsonSchema): the API enforces required fields, array bounds and string lengths.
+const JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
   properties: {
-    name: { type: "STRING" },
-    brand: { type: "STRING", nullable: true },
-    category: { type: "STRING", enum: CATEGORIES },
-    colors: { type: "ARRAY", items: { type: "STRING" }, maxItems: 3 },
-    description: { type: "STRING" },
-    covers: { type: "ARRAY", items: { type: "STRING", enum: SLOTS } },
-    missing: { type: "ARRAY", items: { type: "STRING", enum: SLOTS } },
-    clean_product_shot: { type: "BOOLEAN" },
+    name: { type: "string", minLength: 3, maxLength: 80 },
+    brand: { type: ["string", "null"], maxLength: 60 },
+    category: { type: "string", enum: CATEGORIES },
+    colors: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", minLength: 3, maxLength: 20 } },
+    description: { type: "string", minLength: 20, maxLength: 300 },
+    clean_product_shot: { type: "boolean" },
   },
-  required: ["name", "brand", "category", "colors", "description", "covers", "missing", "clean_product_shot"],
+  required: ["name", "brand", "category", "colors", "description", "clean_product_shot"],
 };
 
 function b64(buf: ArrayBuffer): string {
@@ -76,22 +74,21 @@ export async function analyzeGarment(env: Env, image: ImageInput): Promise<Analy
       headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
       body: JSON.stringify({
         contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: image.mime, data: b64(image.bytes) } }] }],
-        generationConfig: { responseMimeType: "application/json", responseSchema: SCHEMA, thinkingConfig: { thinkingBudget: 0 }, temperature: 0.2 },
+        generationConfig: { responseMimeType: "application/json", responseJsonSchema: JSON_SCHEMA, thinkingConfig: { thinkingBudget: 0 }, temperature: 0.2 },
       }),
     });
     const json: any = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error?.message ?? `gemini ${res.status}`);
     const text: string = json.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
     const p = JSON.parse(text);
-    const slots = (v: unknown): Slot[] => (Array.isArray(v) ? v.filter((s): s is Slot => SLOTS.includes(s)) : []);
     return {
       name: p.name ? String(p.name).slice(0, 80) : null,
       brand: p.brand ? String(p.brand).slice(0, 60) : null,
       category: CATEGORIES.includes(p.category) ? p.category : null,
       colors: Array.isArray(p.colors) ? splitColors(p.colors) : [],
       description: p.description ? String(p.description).slice(0, 300) : null,
-      covers: slots(p.covers),
-      missing: slots(p.missing).filter((s) => s !== "outerwear" && s !== "accessory"),
+      covers: [],
+      missing: [],
       clean_product_shot: p.clean_product_shot === true,
       model,
       ms: Date.now() - t0,

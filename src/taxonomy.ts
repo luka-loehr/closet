@@ -100,6 +100,21 @@ export function categoryDef(id: string | null | undefined): CategoryDef {
 export function familyOf(id: string | null | undefined): Family { return categoryDef(id).family; }
 export function labelOf(id: string | null | undefined): string { return categoryDef(id).label; }
 export function slotsOf(id: string | null | undefined): Slot[] { const d = categoryDef(id); return d.slots ?? FAMILY_SLOTS[d.family]; }
+/**
+ * Which slots a full fit still needs when this piece is worn over the base outfit (plain tee, jeans, white sneakers).
+ * Rules, not model output: outerwear closes over the base tee, so nothing is offered underneath it; a top is the
+ * outermost layer, so no outerwear is offered over it; sets and dresses only lack shoes; shoes lack top and bottom;
+ * accessories never change the fit.
+ */
+export function missingSlots(id: string | null | undefined): Slot[] {
+  switch (familyOf(id)) {
+    case "tops": case "outerwear": return ["bottom", "shoes"];
+    case "bottoms": return ["top", "shoes"];
+    case "shoes": return ["top", "bottom"];
+    case "sets": case "dresses": return ["shoes"];
+    default: return [];
+  }
+}
 /** Whether the second (hover) view of this category may fill the whole frame. */
 export function detailFills(id: string | null | undefined): boolean { return FAMILY_DETAIL_FILLS[familyOf(id)]; }
 export function studioHow(id: string | null | undefined, view: "main" | "alt"): string { const d = categoryDef(id); return (view === "main" ? d.main : d.alt) ?? FAMILY_HOW[d.family][view]; }

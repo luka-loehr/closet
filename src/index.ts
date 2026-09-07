@@ -19,7 +19,7 @@ import { describeGarment, IMAGE_MODEL, type Quality } from "./openai";
 import { imageKeys, storeImage } from "./images";
 import { CATEGORIES, HERO_STYLES, PAIRABLE, VARIANTS, slotsOf, type HeroStyle, type Slot, type Variant } from "./prompts";
 import { analyzeGarment, DEFAULT_GEMINI_MODEL, type Analysis } from "./gemini";
-import { CATEGORIES_BY_FAMILY, detailFills, familyOf, labelOf } from "./taxonomy";
+import { CATEGORIES_BY_FAMILY, detailFills, familyOf, labelOf, missingSlots } from "./taxonomy";
 import { getSetting, handleQueue } from "./jobs";
 import type { Job } from "./env";
 
@@ -356,8 +356,8 @@ app.post("/api/garments", requireAuth, async (c) => {
     a = { ...a, name: a.name ?? m.name, brand: a.brand ?? m.brand, category: a.category ?? (CATEGORIES.includes(m.category as any) ? (m.category as any) : null), colors: a.colors.length ? a.colors : m.color ? [m.color.toLowerCase()] : [] };
   }
   const category = a.category ?? "other";
-  const covers = a.covers.length ? a.covers : slotsOf(category);
-  const missing = a.missing.length ? a.missing : (["top", "bottom", "shoes"] as Slot[]).filter((x) => !covers.includes(x));
+  const covers = slotsOf(category);
+  const missing = missingSlots(category);
   await c.env.DB.prepare(
     "INSERT INTO garments (id, name, brand, category, color, notes, source_url, r2_key, thumb_key, created_at, owned, draft, colors, description, covers, missing, studio_key, studio_status) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, NULL)",
   ).bind(id, a.name ?? "New Piece", a.brand, category, a.colors.join(", ") || null, sourceUrl, stored.key, stored.thumb_key, now(), owned, JSON.stringify(a.colors), a.description, JSON.stringify(covers), JSON.stringify(missing), null).run();
@@ -392,10 +392,11 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
     if (ids.length) {
       const rows = await c.env.DB.prepare(`SELECT id, category FROM garments WHERE owned = 1 AND draft = 0 AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; category: string | null }>();
       const seen = new Set<Slot>();
+      const allowed = missingSlots(category);
       for (const slot of PAIRABLE) {
         const pid = b.pairing[slot];
         const row = rows.results.find((r) => r.id === pid);
-        if (!row || covers.includes(slot) || seen.has(slot) || !slotsOf(row.category).includes(slot)) continue;
+        if (!row || !allowed.includes(slot) || seen.has(slot) || !slotsOf(row.category).includes(slot)) continue;
         seen.add(slot); pairing.push(row.id);
       }
     }
@@ -403,8 +404,8 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
 
   // An owned piece is always rendered as studio shots (phone photos are never shown as the product image).
   const studioStatus = owned && wasDraft ? "pending" : g.studio_status;
-  await c.env.DB.prepare("UPDATE garments SET name = ?, brand = ?, category = ?, color = ?, colors = ?, description = ?, owned = ?, draft = 0, covers = ?, studio_status = ?, source_url = ? WHERE id = ?")
-    .bind(name, brand, category, colors.join(", ") || null, JSON.stringify(colors), description, owned, JSON.stringify(covers.length ? covers : arr(g.covers)), studioStatus, sourceUrl, id).run();
+  await c.env.DB.prepare("UPDATE garments SET name = ?, brand = ?, category = ?, color = ?, colors = ?, description = ?, owned = ?, draft = 0, covers = ?, missing = ?, studio_status = ?, source_url = ? WHERE id = ?")
+    .bind(name, brand, category, colors.join(", ") || null, JSON.stringify(colors), description, owned, JSON.stringify(covers), JSON.stringify(missingSlots(category)), studioStatus, sourceUrl, id).run();
 
   if (owned && wasDraft && studioStatus === "pending") await c.env.JOBS.send({ kind: "studio", id } satisfies Job);
   if (!owned && wasDraft) {
