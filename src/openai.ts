@@ -32,7 +32,8 @@ export async function editImage(opts: { key: string; images: ImageInput[]; promp
   fd.append("output_format", "png");
   opts.images.forEach((im, i) => fd.append("image[]", new Blob([im.bytes], { type: im.mime }), im.name ?? `image-${i + 1}.${im.mime === "image/png" ? "png" : "jpg"}`));
   const t0 = Date.now();
-  const res = await fetch("https://api.openai.com/v1/images/edits", { method: "POST", headers: { authorization: `Bearer ${opts.key}` }, body: fd });
+  // A hung edit must not hold a queue invocation open for its full 15 minutes: covers take ~90 s at most.
+  const res = await fetch("https://api.openai.com/v1/images/edits", { method: "POST", headers: { authorization: `Bearer ${opts.key}` }, body: fd, signal: AbortSignal.timeout(240_000) });
   const json: any = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(`openai ${res.status}: ${json?.error?.message ?? "image edit failed"}`);
   const b64 = json.data?.[0]?.b64_json;
@@ -49,6 +50,7 @@ export async function describeGarment(key: string, garment: ImageInput): Promise
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
         model: TEXT_MODEL,
         messages: [{ role: "user", content: [{ type: "text", text: NAME_PROMPT }, { type: "image_url", image_url: { url: `data:${garment.mime};base64,${bytesToB64(garment.bytes)}`, detail: "low" } }] }],

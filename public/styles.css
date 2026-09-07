@@ -335,3 +335,17 @@ body.noscroll { overflow: hidden; }
 .linkrow .input { height: 36px; font-size: 12px; max-width: 420px; }
 .v-link { color: var(--muted); text-transform: uppercase; letter-spacing: .12em; font-size: 10.5px; font-weight: 700; transition: color var(--t-fast); }
 .v-link:hover { color: var(--fg); }
+
+/* ---------- polling refresh: patched cards never re-run the entrance animation; a new image fades in ---------- */
+.card.settled { animation: none; opacity: 1; }
+.card.piece .tile img.reveal, .v-tile img.reveal { animation: reveal .9s var(--ease-out) both; }
+
+/* ---------- route loading line ---------- */
+#progress { position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 120; pointer-events: none; opacity: 0; transition: opacity .2s; overflow: hidden; }
+#progress::before { content: ""; position: absolute; top: 0; bottom: 0; width: 40%; background: var(--fg); transform: translateX(-100%); animation: progress-slide 1.1s var(--ease) infinite; }
+#progress.on { opacity: 1; }
+@keyframes progress-slide { to { transform: translateX(350%); } }
+
+.viewer.instant { transition: none; }
+.viewer.instant.open { opacity: 1; }
+.filters .chip[data-brand] { border-style: dashed; }

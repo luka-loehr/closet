@@ -89,16 +89,43 @@ until the queue delivers.
   `ALLOWED_EMAIL` gets a code; every other address is a silent no-op. A
   passkey can only be registered from an already authenticated session
   ([`src/auth.ts`](src/auth.ts)).
-- Sessions are D1 rows behind an `HttpOnly` cookie, 60 days. Codes
-  expire after 10 minutes and are rate-limited per address.
+- Sessions are D1 rows behind an `HttpOnly`, `SameSite=Lax` cookie,
+  60 days. Codes expire after 10 minutes and are rate-limited per
+  address; login traffic is capped per client IP. Every mutation must
+  carry this site's `Origin`; the static client ships a CSP,
+  `frame-ancestors 'none'`, `nosniff` and a referrer policy
+  (`public/_headers`).
+- Spending is capped ([`src/budget.ts`](src/budget.ts)): analysis
+  passes, gpt-image-2 calls and covers are counted per UTC hour and day
+  in the `spend` table. The API pre-checks before it enqueues and answers
+  `429` with the reason; the queue consumer reserves right before the
+  OpenAI call and marks a job over budget as `skipped` instead of
+  calling out. Defaults: 60 image calls a day (24 an hour), 6 covers a
+  day, 60 analyses a day. A `settings` row `limit_<kind>_<hour|day>`
+  overrides a cap without a deploy.
+- Nothing runs twice: a job is claimed with one conditional `UPDATE`
+  (`started_at`), a commit flips `draft` with one conditional `UPDATE`
+  so a double submit enqueues once, a variant exists at most once per
+  garment, one cover at a time, and a studio re-render is refused while
+  one is in flight. The bulk wardrobe re-render needs
+  `{ "confirm": "re-render all" }` and does at most 20 pieces.
+- An hourly cron (`scheduled` in [`src/index.ts`](src/index.ts)) deletes
+  abandoned drafts older than a day with their R2 objects, expired auth
+  rows and stale counters, and marks jobs that never came back; the
+  same sweep rides along on every upload.
 - Garment ingestion accepts multipart upload, a data URL, or a public
   `https` URL (hostname checked against private ranges, body capped at
   12 MB while streaming).
-- The client is 640 lines of plain TypeScript
-  ([`client/app.ts`](client/app.ts)): history-based routing, a card grid
-  that crossfades studio → dark on hover, a full-screen viewer that
-  expands from the clicked card with a FLIP animation (`/g/:id`), and a
-  flowing menu band for categories, brands, add, and campaign.
+- The client is ~1100 lines of plain TypeScript
+  ([`client/app.ts`](client/app.ts)): history-based routing with scroll
+  restoration per entry (list pages stay alive under the viewers, back
+  lands on the same card), a card grid that crossfades studio → dark on
+  hover, a full-screen viewer that expands from the clicked card with a
+  FLIP animation (`/g/:id`), and a flowing menu band for categories,
+  brands, add, and campaign. While something generates, the grid is
+  polled with backoff (4 → 12 s, paused while the tab is hidden, at most
+  20 minutes) and reconciled in place: only a card whose state changed
+  is replaced, without re-running the entrance animation.
 
 ## 3. Architecture
 
@@ -124,7 +151,8 @@ Cloudflare Worker — Hono router (src/index.ts)
 
 | Path | Contents |
 | --- | --- |
-| `src/index.ts` | Hono app: routing, garment ingestion, settings, references, looks, heroes, image serving. |
+| `src/index.ts` | Hono app: routing, origin check, garment ingestion, settings, references, looks, heroes, image serving, hourly sweep. |
+| `src/budget.ts` | Spend counters per UTC hour/day, `precheck`/`reserve`, the housekeeping sweep and the dead-job marker. |
 | `src/auth.ts` | Email codes via Dairo, WebAuthn registration and login, session cookie, `requireAuth`. |
 | `src/jobs.ts` | Queue consumer: `runLook`, `runHero`, base-reference resolution, R2 image loading. |
 | `src/openai.ts` | `images/edits` client (multipart, base64 decode) and the `gpt-5-mini` fallback cataloguing call. |
@@ -188,7 +216,8 @@ All routes except login and `/img/*` require a session cookie.
 | `POST /api/garments[?owned=1]` | Step 1: store the image, run the analysis, return a pre-filled draft. |
 | `POST /api/garments/:id/commit` | Step 2: the reviewed form plus `pairing` per slot → three looks queued (`202`), or a wardrobe piece with its studio shot queued. |
 | `GET` · `PATCH` · `DELETE /api/garments/:id` | One garment with its looks and paired pieces; edit metadata; delete with images (also discards a draft). |
-| `POST /api/garments/:id/looks` | Enqueue an extra variant for a garment, optionally with a `pairing`. |
+| `POST /api/garments/:id/looks` | Enqueue a missing variant for a garment (`409` if it exists or is in flight), optionally with a `pairing`. |
+| `POST /api/garments/:id/studio` · `POST /api/wardrobe/studio` | Re-render the studio views of one owned piece, or of every owned piece (needs `{ "confirm": "re-render all" }`, max 20). |
 | `DELETE /api/looks/:id` | Remove one look. |
 | `GET /api/heroes` · `POST /api/hero` · `DELETE /api/hero/:id` | Campaign covers: list, generate from 2–3 garments in a scene, delete. |
 | `POST /api/heroes/upload` | Store a cover made elsewhere. |
@@ -253,13 +282,20 @@ Choices that shaped the current build, with the reason they stuck.
 | analysis before generation, Gemini Flash with thinking off | the form is filled and the missing slots known in ~3 s; nothing is generated until I have reviewed it |
 | draft rows instead of holding the upload client-side | the image is uploaded once, and a discarded draft is a plain delete |
 | one wardrobe table, not a second entity | an owned piece and a try-on piece share cataloguing, images and deletion; `owned` is a flag |
+| hard spend caps in D1, checked twice | the API refuses early with a clear `429`; the consumer refuses again right before the call, so a stuck queue or a retry can never run up a bill |
+| conditional `UPDATE`s instead of locks | a claim, a commit and a re-render each flip one row with one statement; D1 has no transactions across requests, but a single statement is atomic |
+| reconcile the grid, never replace it | replacing `innerHTML` every poll re-ran the card animation and made the page jump; keyed patching touches only what changed |
+| scroll state in `history.state` | the viewers are overlays over a live list; closing one is a `popstate` onto the same route, which restores the scroll instead of re-rendering |
 
 ## 9. Security and license
 
 The service is single-tenant by design: one allowed e-mail, resident
-passkeys bound to `closet.lukaloehr.com`, `HttpOnly` sessions, `noindex`
-on every page, and public-URL fetches blocked from private address
-ranges. Reference photos of the person are stored only in R2 and are
+passkeys bound to `closet.lukaloehr.com`, `HttpOnly` `SameSite=Lax`
+sessions, an `Origin` check on every mutation, login traffic capped per
+IP, a CSP with `frame-ancestors 'none'` on the client, `noindex` on
+every page, ids validated before they reach the database, and
+public-URL fetches blocked from private address ranges with redirects
+followed by hand. Error responses never carry internals. Reference photos of the person are stored only in R2 and are
 deliberately kept out of this repository (`refs/` is ignored), as are
 the experiment outputs in `lab/out/`.
 

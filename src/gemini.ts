@@ -79,6 +79,7 @@ async function callGemini(env: Env, model: string, image: ImageInput, schema: Re
   return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
+    signal: AbortSignal.timeout(30_000),
     body: JSON.stringify({
       contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: image.mime, data: b64(image.bytes) } }] }],
       generationConfig: { responseMimeType: "application/json", responseJsonSchema: schema, thinkingConfig: { thinkingBudget: 0 }, temperature: 0.2 },
