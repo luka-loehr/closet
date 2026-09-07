@@ -443,6 +443,29 @@ app.delete("/api/garments/:id", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------- studio shots (re-render an owned piece, or the whole wardrobe) ----------
+
+async function queueStudio(env: Env, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  await env.DB.prepare(`UPDATE garments SET studio_status = 'pending' WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).run();
+  await Promise.all(ids.map((id) => env.JOBS.send({ kind: "studio", id } satisfies Job)));
+}
+
+app.post("/api/garments/:id/studio", requireAuth, async (c) => {
+  const g = await c.env.DB.prepare("SELECT id FROM garments WHERE id = ? AND owned = 1 AND draft = 0").bind(c.req.param("id")).first<{ id: string }>();
+  if (!g) return c.json({ error: "not found" }, 404);
+  await queueStudio(c.env, [g.id]);
+  return c.json(await garmentWithLooks(c.env, g.id), 202);
+});
+
+/** Re-render every owned piece that is not already in flight. */
+app.post("/api/wardrobe/studio", requireAuth, async (c) => {
+  const rows = await c.env.DB.prepare("SELECT id FROM garments WHERE owned = 1 AND draft = 0 AND (studio_status IS NULL OR studio_status != 'pending')").all<{ id: string }>();
+  const ids = rows.results.map((r) => r.id);
+  await queueStudio(c.env, ids);
+  return c.json({ queued: ids }, 202);
+});
+
 // ---------- looks (an extra variant for an existing piece) ----------
 
 app.post("/api/garments/:id/looks", requireAuth, async (c) => {
