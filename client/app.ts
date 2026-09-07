@@ -690,16 +690,18 @@ function watchHeroes() {
 }
 let bindHeroDelete = () => {};
 async function viewSettings() {
-  const [settings, refs, passkeys, garments] = await Promise.all([getSettings(true), api<any[]>("/api/refs"), api<any[]>("/api/auth/passkeys"), api<Garment[]>("/api/garments?limit=200")]);
+  const [settings, refs, passkeys, allTryOns] = await Promise.all([getSettings(true), api<any[]>("/api/refs"), api<any[]>("/api/auth/passkeys"), api<Garment[]>("/api/garments?limit=200&owned=0")]);
+  // A cover is built from finished looks only: pieces with a studio look, never owned pieces or raw uploads.
+  const garments = allTryOns.filter((g) => g.covers?.white || g.covers?.dark || g.covers?.nature);
   let heroPick: string[] = [];
   let heroStyle = settings.hero_styles?.[0] ?? "nyc";
   setHeader("settings", false);
   await swap(`<main class="page"><div class="settings">
     <section id="hero"><h2>Campaign</h2>
-      <p class="lead">Campaign covers rotate on the landing page every 10 seconds. Pick 2–3 garments and a location, then generate (about 90 seconds), or upload a finished cover.</p>
+      <p class="lead">Campaign covers rotate on the landing page every 10 seconds. Pick 2–3 of your finished looks and a location, then generate (about 90 seconds), or upload a finished cover.</p>
       <div class="heroes" id="heroes">${(settings.heroes ?? []).map(heroTile).join("")}</div>
       <div class="chips" id="styles" style="margin-bottom:12px">${(settings.hero_styles ?? []).map((s) => `<button class="chip ${s === heroStyle ? "on" : ""}" data-style="${s}">${esc(STYLE_LABEL[s] ?? s)}</button>`).join("")}</div>
-      <div class="picker" id="picker">${garments.map((g) => `<div class="pick" data-id="${g.id}"><img src="${img(g.covers?.white?.thumb_key ?? g.covers?.white?.r2_key ?? g.thumb_key ?? g.r2_key)}" alt="" /></div>`).join("") || `<span class="muted">No garments yet.</span>`}</div>
+      <div class="picker" id="picker">${garments.map((g) => { const l = g.covers?.white ?? g.covers?.dark ?? g.covers?.nature!; return `<div class="pick" data-id="${g.id}" title="${esc(g.name)}"><img src="${img(l.thumb_key ?? l.r2_key)}" alt="" /></div>`; }).join("") || `<span class="muted">No finished looks yet. Try on a piece first.</span>`}</div>
       <div class="row" style="margin-top:12px"><button class="btn" id="hero-go" disabled>Generate campaign</button><label class="btn ghost" for="hero-file">Upload cover<input type="file" id="hero-file" accept="image/*" hidden /></label><span class="muted" style="font-size:12px" id="hero-hint">Pick 2–3 garments</span></div>
     </section>
     <section><h2>Reference photos of you</h2>
@@ -719,7 +721,7 @@ async function viewSettings() {
     <section><h2>Session</h2><div class="row"><span class="muted" style="font-size:12px">${esc(me.email ?? "")}</span><button class="btn ghost sm" data-action="logout">Log out</button></div></section>
   </div></main>`);
 
-  const drawPick = () => { $$("#picker .pick").forEach((p) => { const i = heroPick.indexOf((p as HTMLElement).dataset.id!); p.classList.toggle("on", i >= 0); $(".n", p)?.remove(); if (i >= 0) p.insertAdjacentHTML("beforeend", `<span class="n">${i + 1}</span>`); }); $<HTMLButtonElement>("#hero-go")!.disabled = heroPick.length < 2; $("#hero-hint")!.textContent = heroPick.length < 2 ? "Pick 2–3 garments" : `${STYLE_LABEL[heroStyle]} · ${heroPick.length} fits`; };
+  const drawPick = () => { $$("#picker .pick").forEach((p) => { const i = heroPick.indexOf((p as HTMLElement).dataset.id!); p.classList.toggle("on", i >= 0); $(".n", p)?.remove(); if (i >= 0) p.insertAdjacentHTML("beforeend", `<span class="n">${i + 1}</span>`); }); $<HTMLButtonElement>("#hero-go")!.disabled = heroPick.length < 2; $("#hero-hint")!.textContent = heroPick.length < 2 ? "Pick 2–3 looks" : `${STYLE_LABEL[heroStyle]} · ${heroPick.length} fits`; };
   $$("#picker .pick").forEach((p) => p.addEventListener("click", () => { const id = (p as HTMLElement).dataset.id!; const i = heroPick.indexOf(id); if (i >= 0) heroPick.splice(i, 1); else if (heroPick.length < 3) heroPick.push(id); drawPick(); }));
   $$("#styles .chip").forEach((c) => c.addEventListener("click", () => { heroStyle = (c as HTMLElement).dataset.style!; $$("#styles .chip").forEach((x) => x.classList.toggle("on", x === c)); drawPick(); }));
   drawPick();

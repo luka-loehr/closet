@@ -531,8 +531,8 @@ app.post("/api/hero", requireAuth, async (c) => {
   if (ids.length < 2) return c.json({ error: "pick 2 or 3 garments" }, 400);
   const style: HeroStyle = HERO_STYLES.includes(b.style as HeroStyle) ? (b.style as HeroStyle) : "nyc";
   const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "hero");
-  const rows = await c.env.DB.prepare(`SELECT id FROM garments WHERE draft = 0 AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string }>();
-  if (rows.results.length !== ids.length) return c.json({ error: "garment not found" }, 404);
+  const rows = await c.env.DB.prepare(`SELECT id FROM garments WHERE draft = 0 AND owned = 0 AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string }>();
+  if (rows.results.length !== ids.length) return c.json({ error: "pick try-on pieces only" }, 400);
   const id = randomId(6);
   await c.env.DB.prepare("INSERT INTO heroes (id, garment_ids, style, model, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)").bind(id, JSON.stringify(ids), style, `${IMAGE_MODEL}:${quality}`, now()).run();
   await c.env.JOBS.send({ kind: "hero", id } satisfies Job);
