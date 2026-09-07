@@ -7,7 +7,7 @@ type Garment = {
   id: string; name: string; brand: string | null; category: string | null; color: string | null; notes: string | null; source_url: string | null; r2_key: string; thumb_key: string | null; created_at: number;
   owned: number; draft: number; colors: string[]; description: string | null; missing: string[]; studio_key: string | null; studio_alt_key: string | null; studio_status: string | null; family?: string; category_label?: string; detail_fill?: boolean;
   covers?: Record<string, Look>; looks?: Look[]; paired?: Garment[]; pending?: number; slots?: string[];
-  analysis?: { model: string | null; ms: number; found_brand: boolean; found_name: boolean; clean_product_shot: boolean };
+  analysis?: { model: string | null; fallback?: string | null; ms: number; found_brand: boolean; found_name: boolean; clean_product_shot: boolean };
 };
 type Hero = { id: string; r2_key: string | null; garment_ids: string[]; style: string; model: string; status: string; error: string | null; created_at: number };
 type Settings = { model: string; look_quality: string; hero_quality: string; qualities: string[]; variants: string[]; hero_styles: string[]; base_ref: string | null; heroes: Hero[]; analysis_model: string | null; categories: string[]; slots: string[] };
@@ -444,7 +444,7 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
     return;
   }
   const a = g.analysis;
-  $("#add-name")!.innerHTML = a?.model ? `${esc(a.model)} · ${(a.ms / 1000).toFixed(1)} s${a.found_brand ? "" : " · brand not recognised"}` : "Fill in the details";
+  $("#add-name")!.innerHTML = a?.model ? `${esc(a.model)} · ${(a.ms / 1000).toFixed(1)} s${a.found_brand ? "" : " · brand not recognised"}` : a?.fallback ? `<span style="color:var(--danger)">Analysis failed</span> · filled by ${esc(a.fallback)} · check every field` : "Fill in the details";
   $("#add-name")!.classList.remove("analysing");
   const wardrobe = own ? [] : await api<Garment[]>("/api/garments?limit=300&owned=1");
   const settings = await getSettings();

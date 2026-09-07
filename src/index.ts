@@ -15,7 +15,7 @@ import {
   startEmailCode,
   verifyEmailCode,
 } from "./auth";
-import { describeGarment, IMAGE_MODEL, type Quality } from "./openai";
+import { describeGarment, IMAGE_MODEL, TEXT_MODEL, type Quality } from "./openai";
 import { imageKeys, storeImage } from "./images";
 import { CATEGORIES, HERO_STYLES, PAIRABLE, VARIANTS, slotsOf, type HeroStyle, type Slot, type Variant } from "./prompts";
 import { analyzeGarment, DEFAULT_GEMINI_MODEL, type Analysis } from "./gemini";
@@ -350,10 +350,12 @@ app.post("/api/garments", requireAuth, async (c) => {
     analyzeGarment(c.env, { mime, bytes }),
   ]);
   let a: Analysis = analysis;
-  if (!a.model || (!a.name && !a.category)) {
-    // Gemini unavailable: fall back to the text model so the form is never empty.
+  let fallback: string | null = null;
+  if (!a.model) {
+    // Gemini failed or is not configured: fall back to the text model so the form is never empty, and say so.
     const m = await describeGarment(c.env.OPENAI_API_KEY, { mime, bytes });
-    a = { ...a, name: a.name ?? m.name, brand: a.brand ?? m.brand, category: a.category ?? (CATEGORIES.includes(m.category as any) ? (m.category as any) : null), colors: a.colors.length ? a.colors : m.color ? [m.color.toLowerCase()] : [] };
+    fallback = TEXT_MODEL;
+    a = { ...a, name: a.name ?? m.name, brand: a.brand ?? m.brand, category: a.category ?? (CATEGORIES.includes(m.category) ? m.category : null), colors: a.colors.length ? a.colors : m.color ? m.color.toLowerCase().split(/\s*(?:[&/,+]|\band\b)\s*/).filter(Boolean).slice(0, 3) : [] };
   }
   const category = a.category ?? "other";
   const covers = slotsOf(category);
@@ -362,7 +364,7 @@ app.post("/api/garments", requireAuth, async (c) => {
     "INSERT INTO garments (id, name, brand, category, color, notes, source_url, r2_key, thumb_key, created_at, owned, draft, colors, description, covers, missing, studio_key, studio_status) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, NULL)",
   ).bind(id, a.name ?? "New Piece", a.brand, category, a.colors.join(", ") || null, sourceUrl, stored.key, stored.thumb_key, now(), owned, JSON.stringify(a.colors), a.description, JSON.stringify(covers), JSON.stringify(missing), null).run();
   const g = await garmentWithLooks(c.env, id);
-  return c.json({ ...g, analysis: { model: a.model, ms: a.ms, found_brand: !!a.brand, found_name: !!a.name, clean_product_shot: a.clean_product_shot } });
+  return c.json({ ...g, analysis: { model: a.model, fallback, ms: a.ms, found_brand: !!a.brand, found_name: !!a.name, clean_product_shot: a.clean_product_shot } });
 });
 
 /**

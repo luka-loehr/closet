@@ -63,20 +63,41 @@ function splitColors(v: unknown[]): string[] {
 
 const EMPTY: Analysis = { name: null, brand: null, category: null, colors: [], description: null, covers: [], missing: [], clean_product_shot: false, model: null, ms: 0 };
 
-/** Analyse a garment image. Never throws: on any failure the form is simply left for the user to fill. */
+/** Resolve whatever the model wrote as a category to a taxonomy id (exact id, else label, else the family "(other)" id, else null). */
+function resolveCategory(v: unknown): Category | null {
+  if (typeof v !== "string") return null;
+  const raw = v.trim().toLowerCase();
+  if (CATEGORIES.includes(raw)) return raw;
+  const slug = raw.replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  if (CATEGORIES.includes(slug)) return slug;
+  for (const f of CATEGORIES_BY_FAMILY) for (const c of f.categories) if (c.label.toLowerCase() === raw) return c.id;
+  for (const f of CATEGORIES_BY_FAMILY) if (f.label.toLowerCase() === raw || f.family === raw) return f.categories[f.categories.length - 1].id;
+  return null;
+}
+
+async function callGemini(env: Env, model: string, image: ImageInput, schema: Record<string, unknown>): Promise<Response> {
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: image.mime, data: b64(image.bytes) } }] }],
+      generationConfig: { responseMimeType: "application/json", responseJsonSchema: schema, thinkingConfig: { thinkingBudget: 0 }, temperature: 0.2 },
+    }),
+  });
+}
+
+/** Analyse a garment image. Never throws: on any failure `model` is null and the caller falls back / leaves the form to the user. */
 export async function analyzeGarment(env: Env, image: ImageInput): Promise<Analysis> {
   if (!env.GEMINI_API_KEY) return { ...EMPTY };
   const model = env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
   const t0 = Date.now();
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT }, { inline_data: { mime_type: image.mime, data: b64(image.bytes) } }] }],
-        generationConfig: { responseMimeType: "application/json", responseJsonSchema: JSON_SCHEMA, thinkingConfig: { thinkingBudget: 0 }, temperature: 0.2 },
-      }),
-    });
+    let res = await callGemini(env, model, image, JSON_SCHEMA);
+    if (res.status === 400) {
+      // The API caps enum size (109 values on 2026-09-07). If the taxonomy ever outgrows it, ask for a free string and validate here.
+      const loose = { ...JSON_SCHEMA, properties: { ...JSON_SCHEMA.properties, category: { type: "string", minLength: 2, maxLength: 40 } } };
+      res = await callGemini(env, model, image, loose);
+    }
     const json: any = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(json?.error?.message ?? `gemini ${res.status}`);
     const text: string = json.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? "").join("") ?? "";
@@ -84,7 +105,7 @@ export async function analyzeGarment(env: Env, image: ImageInput): Promise<Analy
     return {
       name: p.name ? String(p.name).slice(0, 80) : null,
       brand: p.brand ? String(p.brand).slice(0, 60) : null,
-      category: CATEGORIES.includes(p.category) ? p.category : null,
+      category: resolveCategory(p.category),
       colors: Array.isArray(p.colors) ? splitColors(p.colors) : [],
       description: p.description ? String(p.description).slice(0, 300) : null,
       covers: [],
@@ -95,6 +116,6 @@ export async function analyzeGarment(env: Env, image: ImageInput): Promise<Analy
     };
   } catch (e) {
     console.error("gemini analysis failed", (e as Error).message);
-    return { ...EMPTY, model, ms: Date.now() - t0 };
+    return { ...EMPTY, model: null, ms: Date.now() - t0 };
   }
 }
