@@ -58,10 +58,8 @@ img { display: block; max-width: 100%; }
 .hero { position: relative; height: 100svh; min-height: 560px; background: #d9d9d9; overflow: hidden; isolation: isolate; }
 .hero .slides, .hero .slide { position: absolute; inset: 0; }
 .hero .slide { opacity: 0; transition: opacity 1.4s var(--ease); will-change: opacity; }
-.hero .slide img { width: 100%; height: 100%; object-fit: cover; object-position: center 22%; transform: scale(1.02); }
+.hero .slide img { width: 100%; height: 100%; object-fit: cover; object-position: center 22%; }
 .hero .slide.on { opacity: 1; z-index: 1; }
-.hero .slide.on img { animation: kenburns 12s linear both; }
-@keyframes kenburns { from { transform: scale(1.02); } to { transform: scale(1.09); } }
 .hero .shade { position: absolute; inset: 0; z-index: 2; background: linear-gradient(to top, rgba(0,0,0,.3) 0%, rgba(0,0,0,0) 45%), linear-gradient(to bottom, rgba(0,0,0,.2) 0%, rgba(0,0,0,0) 22%); pointer-events: none; }
 .hero .overlay { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 9vh; color: #fff; pointer-events: none; }
 .hero .wordmark { font-family: var(--display); font-weight: 800; font-style: italic; font-size: clamp(64px, 11vw, 150px); letter-spacing: -.05em; line-height: .88; overflow: hidden; padding: 0 .1em; }
@@ -265,12 +263,13 @@ body.noscroll { overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
-  .hero .slide.on img, .flow-inner { animation: none; }
+  .flow-inner { animation: none; }
 }
 
 /* ---------- wardrobe (pieces you own) ---------- */
 .card.piece .tile { background: #fff; border: 1px solid var(--line); }
-.card.piece .tile img.product { object-fit: cover; padding: 0; transition: transform var(--t-slow) var(--ease); }
+.card.piece .tile img.product { object-fit: contain; padding: 4%; transition: transform var(--t-slow) var(--ease); }
+.card.piece .tile img.product.fill { object-fit: cover; padding: 0; }
 .card.piece:hover .tile img.product { transform: none; }
 .swatches { display: inline-flex; gap: 5px; vertical-align: middle; }
 .swatches i { width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(0,0,0,.18); box-shadow: inset 0 0 0 1px rgba(255,255,255,.4); }
@@ -302,7 +301,7 @@ body.noscroll { overflow: hidden; }
 .tag-missing { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; font-weight: 700; color: #fff; background: var(--fg); padding: 3px 8px; border-radius: 999px; }
 .slotpick { display: flex; gap: 8px; flex-wrap: wrap; }
 .slotpick .pick { width: 84px; aspect-ratio: 3 / 4; background: #fff; border: 1px solid var(--line); display: grid; place-items: center; text-align: center; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: var(--muted); line-height: 1.3; }
-.slotpick .pick img { object-fit: cover; padding: 0; }
+.slotpick .pick img { object-fit: contain; padding: 4%; }
 .slotpick .pick.on { color: var(--fg); }
 .slotpick .pick.add { border-style: dashed; border-color: #c8c8c8; }
 
@@ -310,11 +309,12 @@ body.noscroll { overflow: hidden; }
 .viewer.piece .v-row.one { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 900px; margin: 0 auto; width: 100%; }
 .viewer.piece .v-row.one:has(.v-panel:only-child) { grid-template-columns: 1fr; max-width: 520px; }
 .v-tile.product { aspect-ratio: 3 / 4; background: #fff; border: 1px solid var(--line); }
-.v-tile.product img { object-fit: cover; padding: 0; }
+.v-tile.product img { object-fit: contain; padding: 3%; }
+.v-tile.product img.fill { object-fit: cover; padding: 0; }
 .v-desc { margin: 8px 0 0; max-width: 560px; font-size: 13px; color: #444; }
 .srcmini.paired { padding: 4px; margin-left: 6px; transition: transform var(--t) var(--ease); }
 .srcmini.paired:hover { transform: translateY(-2px); }
-.srcmini.paired img { width: 100%; height: 100%; object-fit: cover; }
+.srcmini.paired img { width: 100%; height: 100%; object-fit: contain; }
 .card.piece .tile img.product.alt { opacity: 0; }
 .card.piece:hover .tile img.product.alt { opacity: 1; }
 .v-re { color: var(--muted); text-transform: uppercase; letter-spacing: .12em; font-size: 10.5px; font-weight: 700; margin-left: 14px; transition: color var(--t-fast); }
@@ -325,3 +325,13 @@ body.noscroll { overflow: hidden; }
 .card.piece:hover .tile img.product { transform: none; }
 .card.piece .name { transition: none; }
 .card.piece:hover .name { letter-spacing: .06em; }
+
+/* pairing pickers: a plain, unmistakable selected state */
+.slotpick .pick { transition: none; }
+.slotpick .pick:hover { transform: none; border-color: #999; }
+.slotpick .pick.on { border: 2px solid var(--fg); }
+.slotpick .pick.on::after { content: "✓"; position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 50%; background: var(--fg); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.linkrow { display: flex; gap: 8px; align-items: center; }
+.linkrow .input { height: 36px; font-size: 12px; max-width: 420px; }
+.v-link { color: var(--muted); text-transform: uppercase; letter-spacing: .12em; font-size: 10.5px; font-weight: 700; transition: color var(--t-fast); }
+.v-link:hover { color: var(--fg); }

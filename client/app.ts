@@ -1,10 +1,11 @@
 import { startAuthentication, startRegistration, browserSupportsWebAuthn, browserSupportsWebAuthnAutofill } from "@simplewebauthn/browser";
+import { CATEGORIES_BY_FAMILY, FAMILY_LABEL, FAMILY_ORDER, detailFills, familyOf, labelOf, slotsOf as taxSlots } from "../src/taxonomy";
 
 // ---------- types ----------
 type Look = { id: string; garment_id: string; variant: string; pose: string; model: string; status: string; r2_key: string | null; thumb_key: string | null; error: string | null; duration_ms: number | null; created_at: number; pairing?: string[] };
 type Garment = {
   id: string; name: string; brand: string | null; category: string | null; color: string | null; notes: string | null; source_url: string | null; r2_key: string; thumb_key: string | null; created_at: number;
-  owned: number; draft: number; colors: string[]; description: string | null; missing: string[]; studio_key: string | null; studio_alt_key: string | null; studio_status: string | null;
+  owned: number; draft: number; colors: string[]; description: string | null; missing: string[]; studio_key: string | null; studio_alt_key: string | null; studio_status: string | null; family?: string; category_label?: string; detail_fill?: boolean;
   covers?: Record<string, Look>; looks?: Look[]; paired?: Garment[]; pending?: number; slots?: string[];
   analysis?: { model: string | null; ms: number; found_brand: boolean; found_name: boolean; clean_product_shot: boolean };
 };
@@ -17,9 +18,7 @@ const QUALITY_LABEL: Record<string, string> = { medium: "Medium · ~40 s", high:
 const STYLE_LABEL: Record<string, string> = { nyc: "New York", beach: "Volcanic beach", wheel: "Ferris wheel", wall: "White wall", rooftop: "Rooftop", garage: "Garage", studio: "Studio" };
 const NAV = [{ href: "/", label: "Looks", key: "home" }, { href: "/closet", label: "Closet", key: "closet" }, { href: "/settings", label: "Settings", key: "settings" }];
 const SLOT_LABEL: Record<string, string> = { top: "Top", bottom: "Bottom", shoes: "Shoes", outerwear: "Jacket", accessory: "Accessory" };
-const SLOT_OF: Record<string, string[]> = { jacket: ["outerwear"], hoodie: ["top"], sweater: ["top"], tee: ["top"], shirt: ["top"], pants: ["bottom"], shorts: ["bottom"], set: ["top", "bottom"], dress: ["top", "bottom"], shoes: ["shoes"], accessory: ["accessory"] };
-const CAT_ORDER = ["shoes", "pants", "shorts", "jeans", "tee", "shirt", "hoodie", "sweater", "jacket", "set", "dress", "accessory", "other"];
-const CAT_LABEL: Record<string, string> = { shoes: "Shoes", pants: "Pants", shorts: "Shorts", tee: "T-shirts", shirt: "Shirts", hoodie: "Hoodies", sweater: "Sweaters", jacket: "Jackets", set: "Sets", dress: "Dresses", accessory: "Accessories", other: "Other" };
+const CAT_LABEL = new Proxy({} as Record<string, string>, { get: (_t, k: string) => labelOf(k) });
 const SWATCH: Record<string, string> = { black: "#111", white: "#fff", "off-white": "#f3efe6", cream: "#f1e9d2", ivory: "#f4f0e4", grey: "#8a8a8a", gray: "#8a8a8a", "light grey": "#c9c9c9", "light gray": "#c9c9c9", "dark grey": "#4a4a4a", "dark gray": "#4a4a4a", heather: "#b9b9b9", "heather grey": "#b9b9b9", charcoal: "#3a3a3a", anthracite: "#3d3f42", silver: "#c0c0c0", navy: "#1c2a4a", blue: "#2f5fb3", "light blue": "#9dbde3", "sky blue": "#8cc4ec", "royal blue": "#2b4bd4", denim: "#4f6d9c", indigo: "#2e3a7a", teal: "#227a7a", green: "#2f7a3a", olive: "#6b6f3a", "forest green": "#1f5230", khaki: "#b8a877", sage: "#9aa98a", mint: "#b6e3c6", beige: "#d9c9a8", sand: "#d8c39a", tan: "#c9a575", camel: "#b98a52", brown: "#6b4a2e", "dark brown": "#40291a", chocolate: "#3f2415", burgundy: "#6b1e2b", maroon: "#6b1e2b", red: "#c8202a", orange: "#e57a1f", yellow: "#e8c53a", mustard: "#c7a12a", pink: "#e9a6b9", purple: "#6a3fa0", lavender: "#b7a4d8", gold: "#c9a63c" };
 
 // ---------- utils ----------
@@ -36,7 +35,7 @@ const thumbOf = (key: string, thumb: boolean) => img(thumb && key.endsWith(".web
 /** Only generated studio views are ever shown; the uploaded photo is model input and stays private. */
 const pieceImg = (g: Garment, thumb = true) => (g.studio_key && g.studio_key !== g.r2_key ? thumbOf(g.studio_key, thumb) : "");
 const pieceAlt = (g: Garment, thumb = true) => (g.studio_alt_key ? thumbOf(g.studio_alt_key, thumb) : "");
-const slotsOf = (cat: string | null | undefined) => SLOT_OF[cat ?? ""] ?? [];
+const slotsOf = (cat: string | null | undefined): string[] => taxSlots(cat);
 const app = $("#app")!;
 let me: { authenticated: boolean; email?: string; passkeys?: number } = { authenticated: false };
 let settingsCache: Settings | null = null;
@@ -165,7 +164,7 @@ function pieceCard(g: Garment, i = 0): string {
   const meta = [g.brand, CAT_LABEL[g.category ?? ""] ?? g.category].filter(Boolean).join(" · ");
   const alt = pieceAlt(g), main = pieceImg(g);
   return `<a class="card piece" href="/p/${g.id}" data-pid="${g.id}" style="--i:${i}">
-    <div class="tile ${generating || !main ? "skeleton" : ""}">${main ? `<img class="product" src="${main}" alt="" loading="lazy" decoding="async" />` : ""}${alt ? `<img class="product alt" src="${alt}" alt="" loading="lazy" decoding="async" />` : ""}${generating ? `<div class="status">Studio shots…</div>` : !main ? `<div class="status">No studio shot</div>` : ""}</div>
+    <div class="tile ${generating || !main ? "skeleton" : ""}">${main ? `<img class="product" src="${main}" alt="" loading="lazy" decoding="async" />` : ""}${alt ? `<img class="product alt ${detailFills(g.category) ? "fill" : ""}" src="${alt}" alt="" loading="lazy" decoding="async" />` : ""}${generating ? `<div class="status">Studio shots…</div>` : !main ? `<div class="status">No studio shot</div>` : ""}</div>
     <div class="info"><div class="name">${esc(g.name)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}<div class="variants">${swatches(g.colors)}</div></div>
   </a>`;
 }
@@ -364,11 +363,10 @@ async function viewWardrobe() {
   const pieces = await api<Garment[]>("/api/garments?limit=300&owned=1");
   setHeader("closet", false);
   const draw = () => {
-    const cats = CAT_ORDER.filter((c) => pieces.some((g) => (g.category ?? "other") === c));
-    const extra = Array.from(new Set(pieces.map((g) => g.category ?? "other"))).filter((c) => !CAT_ORDER.includes(c));
-    const sections = [...cats, ...extra].map((c) => {
-      const list = pieces.filter((g) => (g.category ?? "other") === c);
-      return `<section class="wsection" id="cat-${esc(c)}"><div class="section-head"><h2>${esc(CAT_LABEL[c] ?? c)} · ${list.length}</h2></div><div class="grid wgrid">${list.map(pieceCard).join("")}</div></section>`;
+    const sections = FAMILY_ORDER.map((f) => {
+      const list = pieces.filter((g) => familyOf(g.category) === f);
+      if (!list.length) return "";
+      return `<section class="wsection" id="fam-${f}"><div class="section-head"><h2>${esc(FAMILY_LABEL[f])} · ${list.length}</h2></div><div class="grid wgrid">${list.map(pieceCard).join("")}</div></section>`;
     }).join("");
     $("#wardrobe")!.innerHTML = sections || `<div class="empty-state"><h3>Your closet is empty</h3><p>Add the shoes, jeans and tees you already own. When you try on a new piece, you can complete the fit with them.</p><a class="btn" href="/add?own=1">Add what you own</a></div>`;
   };
@@ -471,10 +469,11 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
       <div class="field"><label>Name</label><input class="input" name="name" value="${esc(g.name)}" maxlength="120" /></div>
       <div class="fields2">
         <div class="field"><label>Brand${a && !a.found_brand ? ' <em class="muted">· not recognised, type it</em>' : ""}</label><input class="input ${a && !a.found_brand ? "attn" : ""}" name="brand" value="${esc(g.brand ?? "")}" placeholder="Brand" maxlength="60" /></div>
-        <div class="field"><label>Category</label><select class="input" name="category">${settings.categories.map((c) => `<option value="${c}" ${c === g.category ? "selected" : ""}>${esc(CAT_LABEL[c] ?? c)}</option>`).join("")}</select></div>
+        <div class="field"><label>Category</label><select class="input" name="category">${CATEGORIES_BY_FAMILY.map((f) => `<optgroup label="${esc(f.label)}">${f.categories.map((c) => `<option value="${c.id}" ${c.id === g.category ? "selected" : ""}>${esc(c.label)}</option>`).join("")}</optgroup>`).join("")}</select></div>
       </div>
       <div class="field"><label>Colours <em class="muted">· up to three, comma separated</em></label><div class="colorrow"><input class="input" name="colors" value="${esc(g.colors.join(", "))}" placeholder="navy, white" /><span class="swatches" id="sw">${g.colors.map((c) => `<i style="background:${esc(swatch(c))}"></i>`).join("")}</span></div></div>
       <div class="field"><label>Description</label><textarea class="input" name="description" maxlength="300" rows="2">${esc(g.description ?? "")}</textarea></div>
+      <div class="field"><label>Product link <em class="muted">· where to buy it, optional</em></label><input class="input" name="source_url" type="url" value="${esc(g.source_url ?? "")}" placeholder="https://…" /></div>
     </div>
     ${slotsToPick.length ? `<div class="complete"><div class="section-head" style="margin:6px 0 10px"><h2>Complete the fit</h2><span class="muted" style="font-size:11px">Pieces from your closet are worn with it</span></div>${slotsToPick.map(pickerRow).join("")}</div>` : ""}
     <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? "Two studio views on white are generated from your photo in the background (~40 s): the piece and a detail shot, or for shoes the side and three-quarter view. Your photo itself is never shown." : "Three looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
@@ -498,13 +497,34 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
     try {
       await api(`/api/garments/${g.id}/commit`, { method: "POST", body: JSON.stringify({
         name: val("name"), brand: val("brand") || null, category: val("category"), colors: val("colors").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 3),
-        description: val("description") || null, owned: own, pairing: pick,
+        description: val("description") || null, owned: own, pairing: pick, source_url: val("source_url") || null,
       }) });
       toast(own ? "Added to your closet." : "Generating your looks in the background.");
       navigate(own ? "/closet" : "/", true);
     } catch (err: any) { toast(err.message, true, 6000); btn.disabled = false; btn.textContent = own ? "Add to closet" : "Generate looks"; }
   });
   ($("[name=name]", form) as HTMLInputElement).focus();
+}
+
+// ---------- product link (where to buy it), shown and editable in both viewers ----------
+function linkBlock(g: Garment): string {
+  return `<span class="linkwrap" style="margin-left:14px"><span class="linkview">${g.source_url ? `<a class="v-link" href="${esc(g.source_url)}" target="_blank" rel="noopener" title="${esc(g.source_url)}">Product ↗</a> ` : ""}<button class="v-link edit">${g.source_url ? "Edit link" : "Add link"}</button></span>
+    <span class="linkrow" hidden><input class="input" type="url" value="${esc(g.source_url ?? "")}" placeholder="https://…" /><button class="btn sm" data-save>Save</button><button class="btn ghost sm" data-cancel>Cancel</button></span></span>`;
+}
+function bindLink(el: HTMLElement, g: Garment) {
+  const wrap = $(".linkwrap", el); if (!wrap) return;
+  const view = $(".linkview", wrap)!, row = $(".linkrow", wrap)!, input = $<HTMLInputElement>("input", row)!;
+  $(".edit", view)!.addEventListener("click", () => { view.hidden = true; row.hidden = false; input.focus(); });
+  $("[data-cancel]", row)!.addEventListener("click", () => { row.hidden = true; view.hidden = false; });
+  const save = async () => {
+    try {
+      const u = await api<Garment>(`/api/garments/${g.id}`, { method: "PATCH", body: JSON.stringify({ source_url: input.value.trim() || null }) });
+      g.source_url = u.source_url;
+      wrap.outerHTML = linkBlock(g); bindLink(el, g); toast(g.source_url ? "Link saved" : "Link removed");
+    } catch (err: any) { toast(err.message, true); }
+  };
+  $("[data-save]", row)!.addEventListener("click", save);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); save(); } });
 }
 
 // ---------- piece viewer: one wardrobe piece, large ----------
@@ -526,7 +546,7 @@ async function openPiece(id: string, push = true) {
   const el = document.createElement("div");
   el.className = "viewer piece";
   const pending = g.studio_status === "pending";
-  const shoes = g.category === "shoes";
+  const shoes = familyOf(g.category) === "shoes";
   el.innerHTML = `
     <div class="v-head">
       <div><div class="v-name">${esc(g.name)}</div><div class="v-meta">${esc([g.brand, CAT_LABEL[g.category ?? ""] ?? g.category].filter(Boolean).join(" · "))} ${swatches(g.colors)}</div>${g.description ? `<p class="v-desc">${esc(g.description)}</p>` : ""}</div>
@@ -534,12 +554,13 @@ async function openPiece(id: string, push = true) {
     </div>
     <div class="v-row one">
       <figure class="v-panel" style="--i:0"><div class="v-tile product ${pending || !pieceImg(g) ? "skeleton" : ""}">${pieceImg(g) ? `<img src="${pieceImg(g, false)}" alt="" />` : `<div class="v-missing">${pending ? "Studio shot<br><span>generating…</span>" : "Studio shot<br><span>" + (g.studio_status === "error" ? "failed" : "not generated") + "</span>"}</div>`}</div><figcaption>${shoes ? "Side view" : "Studio shot"}</figcaption></figure>
-      <figure class="v-panel" style="--i:1"><div class="v-tile product ${pending || !pieceAlt(g) ? "skeleton" : ""}">${pieceAlt(g) ? `<img src="${pieceAlt(g, false)}" alt="" />` : `<div class="v-missing">${shoes ? "Three-quarter" : "Detail"}<br><span>${pending ? "generating…" : "not generated"}</span></div>`}</div><figcaption>${shoes ? "Three-quarter view" : "Detail"}</figcaption></figure>
+      <figure class="v-panel" style="--i:1"><div class="v-tile product ${pending || !pieceAlt(g) ? "skeleton" : ""}">${pieceAlt(g) ? `<img src="${pieceAlt(g, false)}" alt="" class="${detailFills(g.category) ? "fill" : ""}" />` : `<div class="v-missing">${shoes ? "Three-quarter" : "Detail"}<br><span>${pending ? "generating…" : "not generated"}</span></div>`}</div><figcaption>${shoes ? "Three-quarter view" : "Detail"}</figcaption></figure>
     </div>
-    <div class="v-foot"><div class="row"><span class="muted" style="font-size:11px">${g.source_url ? `<a href="${esc(g.source_url)}" target="_blank" rel="noopener">Source ↗</a>` : "Owned"}</span>${g.studio_status !== "pending" ? `<button class="v-re" title="Render both studio views again from your photo">Re-render</button>` : ""}</div><button class="v-del">Remove from closet</button></div>`;
+    <div class="v-foot"><div class="row">${linkBlock(g)}${g.studio_status !== "pending" ? `<button class="v-re" title="Render both studio views again from your photo">Re-render</button>` : ""}</div><button class="v-del">Remove from closet</button></div>`;
   document.body.appendChild(el); document.body.classList.add("noscroll"); pieceEl = el;
   void el.offsetWidth; setTimeout(() => el.classList.add("open"), 10);
   $(".v-close", el)!.addEventListener("click", () => closePiece());
+  bindLink(el, g);
   el.addEventListener("click", (e) => { if (e.target === el || (e.target as HTMLElement).classList.contains("v-row")) closePiece(); });
   $(".v-re", el)?.addEventListener("click", async () => {
     try { await api(`/api/garments/${g.id}/studio`, { method: "POST" }); toast("Re-rendering both views in the background."); closePiece(false); navigate("/closet", true); }
@@ -607,7 +628,7 @@ async function openViewer(id: string, fromCard?: HTMLElement, push = true) {
         <div class="v-tile ${!l && pendingV.has(v) ? "skeleton" : ""}">${l ? `<img src="${img(l.r2_key)}" alt="" />` : `<div class="v-missing">${VARIANT_LABEL[v]}<br><span>${pendingV.has(v) ? "generating…" : "not generated"}</span></div>`}</div>
         <figcaption><span class="dot ${v}"></span>${VARIANT_LABEL[v]}${l ? `<a class="v-dl" href="${img(l.r2_key)}" download="${slug}-${v}.webp">Download</a>` : ""}</figcaption>
       </figure>`; }).join("")}</div>
-    <div class="v-foot"><div class="row"><img class="srcmini" src="${img(g.thumb_key ?? g.r2_key)}" alt="" />${(g.paired ?? []).length ? `<span class="caps muted" style="margin-left:6px">Worn with</span>${g.paired!.map((p) => `<a class="srcmini paired" href="/p/${p.id}" title="${esc(p.name)}"><img src="${pieceImg(p)}" alt="" /></a>`).join("")}` : ""}</div><button class="v-del">Delete garment</button></div>
+    <div class="v-foot"><div class="row"><img class="srcmini" src="${img(g.thumb_key ?? g.r2_key)}" alt="" />${(g.paired ?? []).length ? `<span class="caps muted" style="margin-left:6px">Worn with</span>${g.paired!.map((p) => `<a class="srcmini paired" href="/p/${p.id}" title="${esc(p.name)}"><img src="${pieceImg(p)}" alt="" /></a>`).join("")}` : ""}${linkBlock(g)}</div><button class="v-del">Delete garment</button></div>
     ${pos > 0 ? `<button class="v-nav prev" aria-label="Previous">‹</button>` : ""}${pos >= 0 && pos < ids.length - 1 ? `<button class="v-nav next" aria-label="Next">›</button>` : ""}`;
   document.body.appendChild(el);
   document.body.classList.add("noscroll");
@@ -627,6 +648,7 @@ async function openViewer(id: string, fromCard?: HTMLElement, push = true) {
 
   const goTo = (n: number) => { const nid = ids[n]; if (!nid) return; const c = $(`.card[data-id="${nid}"]`); viewerId = null; el.remove(); document.body.classList.remove("noscroll"); openViewer(nid, undefined, false); if (c) c.scrollIntoView({ block: "center", behavior: "instant" as ScrollBehavior }); };
   $(".v-close", el)!.addEventListener("click", () => closeViewer());
+  bindLink(el, g);
   $(".v-nav.prev", el)?.addEventListener("click", () => goTo(pos - 1));
   $(".v-nav.next", el)?.addEventListener("click", () => goTo(pos + 1));
   (el as any)._nav = (d: number) => goTo(pos + d);

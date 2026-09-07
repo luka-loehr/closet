@@ -56,11 +56,11 @@ async function runLook(env: Env, id: string): Promise<void> {
   const look = await env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<{ id: string; garment_id: string; variant: string; model: string; status: string; pairing: string | null }>();
   if (!look || look.status !== "pending") return;
   try {
-    const g = await env.DB.prepare("SELECT r2_key FROM garments WHERE id = ?").bind(look.garment_id).first<{ r2_key: string }>();
+    const g = await env.DB.prepare("SELECT r2_key, category FROM garments WHERE id = ?").bind(look.garment_id).first<{ r2_key: string; category: string | null }>();
     if (!g) throw new Error("garment was deleted");
     const base = await baseReference(env);
     const [person, garment, pairing] = await Promise.all([loadR2Image(env, base.r2_key), loadR2Image(env, g.r2_key), loadPairing(env, look.pairing)]);
-    const prompt = buildLookPrompt(look.variant as Variant, pairing.paired);
+    const prompt = buildLookPrompt(look.variant as Variant, pairing.paired, g.category);
     const r = await editImage({ key: env.OPENAI_API_KEY, images: [person, garment, ...pairing.images], prompt, size: LOOK_SIZE, quality: qualityOf(look.model) });
     const stored = await storeImage(env, `looks/${id}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true });
     await env.DB.prepare("UPDATE looks SET status = 'done', r2_key = ?, thumb_key = ?, prompt = ?, duration_ms = ? WHERE id = ?").bind(stored.key, stored.thumb_key, prompt, r.ms, id).run();

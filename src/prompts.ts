@@ -5,26 +5,16 @@
 export type Variant = "white" | "dark" | "nature";
 export const VARIANTS: Variant[] = ["white", "dark", "nature"];
 
-export const CATEGORIES = ["jacket", "hoodie", "sweater", "tee", "shirt", "pants", "shorts", "set", "dress", "shoes", "accessory", "other"] as const;
-export type Category = (typeof CATEGORIES)[number];
+import { CATEGORY_IDS, detailFills, familyOf, slotsOf, studioHow, type Slot } from "./taxonomy";
+export { slotsOf };
+export type { Slot };
+
+export const CATEGORIES: string[] = CATEGORY_IDS;
+export type Category = string;
 
 /** Body slots a piece can cover; a complete fit is top + bottom + shoes. */
-export const SLOTS = ["top", "bottom", "shoes", "outerwear", "accessory"] as const;
-export type Slot = (typeof SLOTS)[number];
+export const SLOTS: Slot[] = ["top", "bottom", "shoes", "outerwear", "accessory"];
 export const PAIRABLE: Slot[] = ["top", "bottom", "shoes", "outerwear"];
-
-export function slotsOf(category: string | null | undefined): Slot[] {
-  switch (category) {
-    case "jacket": return ["outerwear"];
-    case "hoodie": case "sweater": case "tee": case "shirt": return ["top"];
-    case "pants": case "shorts": return ["bottom"];
-    case "set": return ["top", "bottom"];
-    case "dress": return ["top", "bottom"];
-    case "shoes": return ["shoes"];
-    case "accessory": return ["accessory"];
-    default: return [];
-  }
-}
 
 const LOOK_ENV: Record<Variant, string> = {
   white: "Keep the white studio background exactly as it is.",
@@ -43,39 +33,41 @@ const SLOT_PHRASE: Record<Slot, (n: number) => string> = {
 };
 
 /** Single look: image 1 = base photo, image 2 = the garment, images 3.. = pieces from the wardrobe it is paired with. */
-export function buildLookPrompt(variant: Variant, paired: Paired[] = []): string {
+export function buildLookPrompt(variant: Variant, paired: Paired[] = [], category: string | null = null): string {
+  const fam = familyOf(category);
+  const slots = slotsOf(category);
+  // What the main garment does to the base outfit (plain t-shirt, jeans, white sneakers), by family.
+  const wear = fam === "outerwear"
+    ? "Put the jacket from the second image on him, worn over his t-shirt (or over the top from a later image, if one is given), zipped or buttoned the way it is shown in the second image, and keep his jeans and shoes."
+    : fam === "sets" && slots.includes("outerwear")
+      ? "Dress him in the full outfit from the second image: the jacket over a plain top and the matching trousers; keep his shoes."
+      : fam === "sets" || fam === "dresses"
+        ? "Dress him in the full outfit from the second image, replacing both his t-shirt and his jeans; keep his shoes."
+        : fam === "bottoms"
+          ? "Replace his jeans with exactly the trousers from the second image; keep his t-shirt and shoes."
+          : fam === "shoes"
+            ? "Replace his shoes with exactly the shoes from the second image; keep his t-shirt and jeans."
+            : fam === "accessories"
+              ? "Add exactly the accessory from the second image, worn the natural way; keep his t-shirt, jeans and shoes."
+              : "Replace his t-shirt with exactly the top from the second image, worn as the outermost layer; keep his jeans and shoes.";
   const pairs = paired.map((p, i) => `${SLOT_PHRASE[p.slot](i + 3)} (${p.name})`).join(" ");
-  const kept = paired.length ? "everything not replaced by one of the images" : "his shoes (unless replaced)";
-  return `The first image is a photo of a person, the second image shows a garment. Edit the first image: dress the person in the garment from the second image, reproduced exactly (color, fabric, logos, cut). If the garment image shows a full outfit (top and trousers), replace both his t-shirt and his jeans; if it shows only a top, replace only his t-shirt and keep his jeans; if it shows only trousers, replace only his jeans; if it shows shoes, replace only his shoes. ${pairs ? pairs + " Each piece must be reproduced exactly as shown (color, materials, logos, shape). " : ""}Keep his face, hair, skin, body proportions, pose, hands and ${kept} exactly as in the first image, and keep the framing identical. ${LOOK_ENV[variant] ?? LOOK_ENV.white} Photorealistic e-commerce quality, no text.`;
+  return `The first image is a photo of a person, the second image shows a garment (${category ?? "a piece of clothing"}). Edit the first image. ${wear} The garment must be reproduced exactly (color, fabric, logos, cut, stripes, prints). ${pairs ? pairs + " Each of these pieces must be reproduced exactly as shown (color, materials, logos, shape). " : ""}Keep his face, hair, skin, body proportions, pose, hands and everything not replaced by one of the images exactly as in the first image, and keep the framing identical. ${LOOK_ENV[variant] ?? LOOK_ENV.white} Photorealistic e-commerce quality, no text.`;
 }
 
 /** Wardrobe product shots: image 1 = the uploaded piece (a phone photo, worn, on a hanger, or on a busy background). */
 export type StudioView = "main" | "alt";
-/** Every owned piece gets two generated views: the studio shot and one that unveils on hover (shoes: three-quarter; everything else: a detail close-up). */
+/** Every owned piece gets two generated views: the studio shot and one that unveils on hover (staging per category in src/taxonomy.ts). */
 export function studioViews(_category: string | null): StudioView[] {
   return ["main", "alt"];
 }
 export function buildStudioPrompt(category: string | null, name: string, view: StudioView = "main"): string {
-  let how: string;
-  if (view === "alt" && category !== "shoes") {
-    const focus = category === "pants" || category === "shorts"
-      ? "the waistband, button, fly and belt loops, with the top of the pockets"
-      : category === "accessory"
-        ? "the most characteristic detail of the item (logo, hardware, texture)"
-        : "the collar or neckline, the top of the placket or zip, the inside label and the surrounding fabric";
-    how = `a close-up detail shot of ${focus}, the garment laid flat and photographed from directly above at a slight diagonal so that fabric texture, ribbing, stitching and any logo or print are crisply readable, the crop tight on that area (about a third of the garment visible) and filling the whole portrait frame edge to edge`;
-  } else if (category === "shoes") {
-    how = view === "alt"
-      ? "the pair of shoes seen from a three-quarter front angle slightly from above, both shoes side by side, laces visible, resting on the floor"
-      : "a single shoe in exact side profile, toe pointing to the left, resting flat on the floor, like a sneaker listing on a shop";
-  } else if (category === "pants" || category === "shorts") {
-    how = "laid out flat and neatly from directly above, front view, legs straight";
-  } else if (category === "accessory") {
-    how = "laid out flat from directly above";
-  } else {
-    how = "floating as if worn by an invisible mannequin (ghost mannequin), front view, sleeves relaxed, zips and buttons closed";
-  }
-  return `Create a clean e-commerce product photo of only the item shown in the image (${name}): ${how}, large in the portrait frame with only small even margins (the item spans about 85 percent of the frame width), centered, on a seamless pure white (#FFFFFF) studio background with soft even lighting and a faint soft contact shadow. Reproduce the item exactly: color, materials, texture, logos, stitching, wear and proportions must match the photo. Remove any person, feet, hands, hanger, mannequin, other clothing, floor and background. Sharp, true-to-color, no text, no watermark.`;
+  const how = studioHow(category, view);
+  // Framing rule: garment detail shots fill the frame edge to edge; every other view keeps clear even margins.
+  const framing = view === "alt" && detailFills(category)
+    ? "filling the whole portrait frame edge to edge with the fabric, no visible background margins"
+    : `large in the portrait frame with clear even margins on all sides (the item spans about 80 percent of the frame width), centered, nothing cut off at the edges`;
+  const kind = familyOf(category) === "shoes" ? "shoes" : familyOf(category) === "accessories" ? "item" : "garment";
+  return `Product photo for a catalogue in which every ${kind} is photographed with the same fixed camera setup. The reference image only tells you what the ${kind} looks like (${name}); IGNORE the angle, pose, crop, lighting and background of the reference and re-stage the ${kind} exactly as specified: ${how}; ${framing}. Seamless pure white (#FFFFFF) studio background, soft even shadowless lighting with a faint soft contact shadow, 50 mm lens, no perspective distortion. Reproduce the ${kind} exactly: color, materials, texture, logos, stitching, wear and proportions must match the reference. Remove any person, feet, hands, hanger, mannequin, other clothing, floor and background. Sharp, true-to-color, no text, no watermark.`;
 }
 
 // Campaign covers: the same person three times in one frame, on location.

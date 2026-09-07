@@ -19,6 +19,7 @@ import { describeGarment, IMAGE_MODEL, type Quality } from "./openai";
 import { imageKeys, storeImage } from "./images";
 import { CATEGORIES, HERO_STYLES, PAIRABLE, VARIANTS, slotsOf, type HeroStyle, type Slot, type Variant } from "./prompts";
 import { analyzeGarment, DEFAULT_GEMINI_MODEL, type Analysis } from "./gemini";
+import { CATEGORIES_BY_FAMILY, detailFills, familyOf, labelOf } from "./taxonomy";
 import { getSetting, handleQueue } from "./jobs";
 import type { Job } from "./env";
 
@@ -113,6 +114,14 @@ function isPublicHost(host: string): boolean {
   return true;
 }
 
+/** A product link: http(s) only, trimmed, at most 1000 chars; anything else becomes null. */
+function cleanUrl(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim().slice(0, 1000);
+  if (!t) return null;
+  try { const u = new URL(t); return /^https?:$/.test(u.protocol) ? u.toString() : null; } catch { return null; }
+}
+
 async function setSetting(env: Env, key: string, value: string): Promise<void> {
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key, value).run();
 }
@@ -134,7 +143,7 @@ type LookRow = {
   error: string | null; prompt: string | null; duration_ms: number | null; created_at: number; pairing: string | null;
 };
 const arr = (v: string | null): string[] => { try { const a = v ? JSON.parse(v) : []; return Array.isArray(a) ? a : []; } catch { return []; } };
-const garmentOut = (g: GarmentRow) => ({ ...g, colors: arr(g.colors), covers: arr(g.covers), missing: arr(g.missing) });
+const garmentOut = (g: GarmentRow) => ({ ...g, colors: arr(g.colors), covers: arr(g.covers), missing: arr(g.missing), family: familyOf(g.category), category_label: labelOf(g.category), detail_fill: detailFills(g.category) });
 const lookOut = (l: LookRow) => ({ ...l, pairing: arr(l.pairing) });
 type HeroRow = { id: string; r2_key: string | null; garment_ids: string; style: string; model: string; status: string; error: string | null; duration_ms: number | null; created_at: number };
 const heroOut = (h: HeroRow) => ({ ...h, garment_ids: JSON.parse(h.garment_ids) as string[] });
@@ -234,6 +243,7 @@ app.get("/api/settings", requireAuth, async (c) => {
     heroes: await getHeroes(c.env),
     analysis_model: c.env.GEMINI_API_KEY ? c.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL : null,
     categories: CATEGORIES,
+    taxonomy: CATEGORIES_BY_FAMILY.map((f) => ({ family: f.family, label: f.label, categories: f.categories.map((c) => ({ id: c.id, label: c.label })) })),
     slots: PAIRABLE,
   });
 });
@@ -363,8 +373,9 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
   const id = c.req.param("id");
   const g = await c.env.DB.prepare("SELECT * FROM garments WHERE id = ?").bind(id).first<GarmentRow>();
   if (!g) return c.json({ error: "not found" }, 404);
-  const b = await c.req.json<{ name?: string; brand?: string | null; category?: string; colors?: string[]; description?: string | null; owned?: boolean; pairing?: Record<string, string | null>; quality?: Quality }>().catch(() => null);
+  const b = await c.req.json<{ name?: string; brand?: string | null; category?: string; colors?: string[]; description?: string | null; owned?: boolean; pairing?: Record<string, string | null>; quality?: Quality; source_url?: string | null }>().catch(() => null);
   if (!b || typeof b !== "object") throw new BadRequest("invalid body");
+  const sourceUrl = b.source_url === undefined ? g.source_url : cleanUrl(b.source_url);
   const name = String(b.name ?? g.name).trim().slice(0, 120) || g.name;
   const brand = b.brand === undefined ? g.brand : b.brand ? String(b.brand).trim().slice(0, 60) : null;
   const category = b.category !== undefined ? (CATEGORIES.includes(b.category as any) ? b.category! : "other") : g.category;
@@ -392,8 +403,8 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
 
   // An owned piece is always rendered as studio shots (phone photos are never shown as the product image).
   const studioStatus = owned && wasDraft ? "pending" : g.studio_status;
-  await c.env.DB.prepare("UPDATE garments SET name = ?, brand = ?, category = ?, color = ?, colors = ?, description = ?, owned = ?, draft = 0, covers = ?, studio_status = ? WHERE id = ?")
-    .bind(name, brand, category, colors.join(", ") || null, JSON.stringify(colors), description, owned, JSON.stringify(covers.length ? covers : arr(g.covers)), studioStatus, id).run();
+  await c.env.DB.prepare("UPDATE garments SET name = ?, brand = ?, category = ?, color = ?, colors = ?, description = ?, owned = ?, draft = 0, covers = ?, studio_status = ?, source_url = ? WHERE id = ?")
+    .bind(name, brand, category, colors.join(", ") || null, JSON.stringify(colors), description, owned, JSON.stringify(covers.length ? covers : arr(g.covers)), studioStatus, sourceUrl, id).run();
 
   if (owned && wasDraft && studioStatus === "pending") await c.env.JOBS.send({ kind: "studio", id } satisfies Job);
   if (!owned && wasDraft) {
@@ -424,6 +435,7 @@ app.patch("/api/garments/:id", requireAuth, async (c) => {
     }
   }
   if (Array.isArray(b.colors)) { const cs = b.colors.map((x) => String(x).toLowerCase().trim().slice(0, 30)).filter(Boolean).slice(0, 3); fields.push("colors = ?", "color = ?"); vals.push(JSON.stringify(cs), cs.join(", ") || null); }
+  if ("source_url" in b) { fields.push("source_url = ?"); vals.push(cleanUrl((b as any).source_url)); }
   if (typeof b.owned === "boolean") { fields.push("owned = ?"); vals.push(b.owned ? 1 : 0); }
   if (fields.length) await c.env.DB.prepare(`UPDATE garments SET ${fields.join(", ")} WHERE id = ?`).bind(...vals, c.req.param("id")).run();
   return c.json(await garmentWithLooks(c.env, c.req.param("id")));
