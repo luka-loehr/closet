@@ -63,7 +63,7 @@ export function buildStudioPrompt(category: string | null, name: string, view: S
       : category === "accessory"
         ? "the most characteristic detail of the item (logo, hardware, texture)"
         : "the collar or neckline, the top of the placket or zip, the inside label and the surrounding fabric";
-    how = `a close-up detail shot of ${focus}, the garment laid flat and photographed from directly above at a slight diagonal so that fabric texture, ribbing, stitching and any logo or print are crisply readable, the crop tight on that area (about a third of the garment visible)`;
+    how = `a close-up detail shot of ${focus}, the garment laid flat and photographed from directly above at a slight diagonal so that fabric texture, ribbing, stitching and any logo or print are crisply readable, the crop tight on that area (about a third of the garment visible) and filling the whole portrait frame edge to edge`;
   } else if (category === "shoes") {
     how = view === "alt"
       ? "the pair of shoes seen from a three-quarter front angle slightly from above, both shoes side by side, laces visible, resting on the floor"
@@ -75,7 +75,7 @@ export function buildStudioPrompt(category: string | null, name: string, view: S
   } else {
     how = "floating as if worn by an invisible mannequin (ghost mannequin), front view, sleeves relaxed, zips and buttons closed";
   }
-  return `Create a clean e-commerce product photo of only the item shown in the image (${name}): ${how}, centered with even margins, on a seamless pure white (#FFFFFF) studio background with soft even lighting and a faint soft contact shadow. Reproduce the item exactly: color, materials, texture, logos, stitching, wear and proportions must match the photo. Remove any person, feet, hands, hanger, mannequin, other clothing, floor and background. Sharp, true-to-color, no text, no watermark.`;
+  return `Create a clean e-commerce product photo of only the item shown in the image (${name}): ${how}, large in the portrait frame with only small even margins (the item spans about 85 percent of the frame width), centered, on a seamless pure white (#FFFFFF) studio background with soft even lighting and a faint soft contact shadow. Reproduce the item exactly: color, materials, texture, logos, stitching, wear and proportions must match the photo. Remove any person, feet, hands, hanger, mannequin, other clothing, floor and background. Sharp, true-to-color, no text, no watermark.`;
 }
 
 // Campaign covers: the same person three times in one frame, on location.

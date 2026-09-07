@@ -8,7 +8,7 @@ import { buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioVie
 
 export const LOOK_SIZE = "1152x1536"; // 3:4, multiples of 16
 export const HERO_SIZE = "1920x1088"; // 16:9, multiples of 16
-export const STUDIO_SIZE = "1024x1024"; // wardrobe product shots
+export const STUDIO_SIZE = "1152x1536"; // wardrobe product shots, 3:4 like the cards
 
 type RefRow = { id: string; r2_key: string; label: string | null; active: number; sort: number; created_at: number };
 
@@ -78,7 +78,7 @@ async function runStudio(env: Env, id: string): Promise<void> {
     const views = studioViews(g.category);
     const shots = await Promise.all(views.map(async (view) => {
       const r = await editImage({ key: env.OPENAI_API_KEY, images: [src], prompt: buildStudioPrompt(g.category, g.name, view), size: STUDIO_SIZE, quality: "medium" });
-      return storeImage(env, view === "main" ? `studio/${id}` : `studio/${id}-${view}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true, fullWidth: 1024 });
+      return storeImage(env, view === "main" ? `studio/${id}` : `studio/${id}-${view}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true, fullWidth: 1152 });
     }));
     await env.DB.prepare("UPDATE garments SET studio_status = 'done', studio_key = ?, studio_alt_key = ? WHERE id = ?").bind(shots[0].key, shots[1]?.key ?? null, id).run();
   } catch (e: any) {
