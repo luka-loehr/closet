@@ -12,7 +12,7 @@ A private virtual try-on store at
 [closet.lukaloehr.com](https://closet.lukaloehr.com).
 Paste, drop, or link a product photo and the store answers with a
 photorealistic image of me wearing that exact garment — in a white
-cyclorama, a dark studio, and a bright studio with plants. Campaign
+cyclorama and in a dark studio. Campaign
 covers on location (New York, a black-sand beach, a rooftop, …) rotate
 on the landing page.
 
@@ -30,7 +30,7 @@ nothing runs outside Cloudflare except the image model.
 
 ## 1. What it does
 
-Every garment you add becomes three **looks**. Each look is a single
+Every garment you add becomes two **looks**, in a white studio and a dark studio. Each look is a single
 `images/edits` call: the approved base full-body photo is the first
 input, the garment photo the second, and the model is told to dress the
 person in the garment and change only the background. Nothing about the
@@ -39,7 +39,7 @@ face is ever described in words — the base photo carries the identity.
 | output | inputs | size | quality | wall time |
 | --- | --- | ---: | --- | ---: |
 | analysis (form + what is missing) | garment photo | — | Gemini 3.8 Flash, thinking off | ≈ 3 s |
-| look (white · dark · nature) | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 40 s |
+| look (white · dark) | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 40 s each |
 | studio shots of an owned piece (two for shoes) | my phone photo | 1024×1024 | medium | ≈ 30 s each |
 | campaign cover | base photo + 2–3 garments | 1920×1088 (16:9) | high | ≈ 90 s |
 
@@ -238,9 +238,7 @@ only thing the model is asked to do:
    as images three onwards, each with a one-line slot instruction
    ("image 3 shows shoes: replace his shoes with exactly these shoes").
 3. **The variant changes only the environment.** White keeps the studio
-   as is; dark relights him in a charcoal studio with a rim light;
-   nature dresses the white studio with olive trees, monstera, grasses
-   and sandstone.
+   as is; dark relights him in a charcoal studio with a rim light.
 4. **Covers are the same person two or three times in one frame**, each
    in one garment, in one of seven scenes (NYC, beach, wheel, wall,
    rooftop, garage, studio), full bodies, wide landscape.

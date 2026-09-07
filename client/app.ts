@@ -13,8 +13,8 @@ type Hero = { id: string; r2_key: string | null; garment_ids: string[]; style: s
 type Budget = { hour: number; day: number; limits: { hour: number; day: number } };
 type Settings = { model: string; look_quality: string; hero_quality: string; qualities: string[]; variants: string[]; hero_styles: string[]; base_ref: string | null; heroes: Hero[]; analysis_model: string | null; categories: string[]; slots: string[]; budget?: { analysis: Budget; image: Budget; hero: Budget } };
 
-const VARIANTS = ["white", "dark", "nature"] as const;
-const VARIANT_LABEL: Record<string, string> = { white: "Studio", dark: "Dark", nature: "Nature" };
+const VARIANTS = ["white", "dark"] as const;
+const VARIANT_LABEL: Record<string, string> = { white: "Studio", dark: "Dark" };
 const QUALITY_LABEL: Record<string, string> = { medium: "Medium · ~40 s", high: "High · ~90 s" };
 const STYLE_LABEL: Record<string, string> = { nyc: "New York", beach: "Volcanic beach", wheel: "Ferris wheel", wall: "White wall", rooftop: "Rooftop", garage: "Garage", studio: "Studio" };
 const NAV = [{ href: "/", label: "Looks", key: "home" }, { href: "/closet", label: "Closet", key: "closet" }, { href: "/settings", label: "Settings", key: "settings" }];
@@ -233,8 +233,8 @@ function watchPending(garments: Garment[], apply: (list: Garment[]) => void, que
 
 function card(g: Garment, i = 0): string {
   const c = g.covers ?? {};
-  const main = c.white ?? c.nature ?? c.dark;
-  const alt = [c.dark, c.white, c.nature].find((x) => x && x !== main);
+  const main = c.white ?? c.dark;
+  const alt = [c.dark, c.white].find((x) => x && x !== main);
   const meta = [g.brand, CAT_LABEL[g.category ?? ""] ?? g.category].filter(Boolean).join(" · ");
   const thumb = (l: Look) => img(l.thumb_key ?? l.r2_key);
   const status = g.pending ? `<div class="status">Generating…</div>` : g.errors ? `<div class="status error">Generation failed · open for details</div>` : `<div class="status">Not generated</div>`;
@@ -512,7 +512,7 @@ async function viewWardrobe() {
 // ---------- add flow: upload → fast analysis → review form (+ complete the fit) → submit ----------
 let pendingImage: { file?: File; url?: string; dataUrl?: string } | null = null;
 let addOwn = false;
-const MODE_HINT = { own: "Goes into your closet as two studio views; use it to complete fits.", tryon: "Generates you wearing it in three studio setups." };
+const MODE_HINT = { own: "Goes into your closet as two studio views; use it to complete fits.", tryon: "Generates you wearing it in the white and the dark studio." };
 
 async function viewAdd() {
   const settings = await getSettings();
@@ -626,7 +626,7 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
       <div class="field"><label>Product link <em class="muted">· where to buy it, optional</em></label><input class="input" name="source_url" type="url" value="${esc(g.source_url ?? "")}" placeholder="https://…" /></div>
     </div>
     ${slotsToPick.length ? `<div class="complete" ${missingSlots(g.category).length ? "" : "hidden"}><div class="section-head" style="margin:6px 0 10px"><h2>Complete the fit</h2><span class="muted" style="font-size:11px">Pieces from your closet are worn with it; the base tee, jeans and sneakers fill the rest</span></div>${slotsToPick.map(pickerRow).join("")}</div>` : ""}
-    <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? "Two studio views on white are generated from your photo in the background (~40 s): the piece and a detail shot, or for shoes the side and three-quarter view. Your photo itself is never shown." : "Three looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
+    <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? "Two studio views on white are generated from your photo in the background (~40 s): the piece and a detail shot, or for shoes the side and three-quarter view. Your photo itself is never shown." : "Two looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
   const colorsIn = $<HTMLInputElement>("[name=colors]", form)!;
   colorsIn.addEventListener("input", () => { const cs = colorsIn.value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 3); $("#sw")!.innerHTML = cs.map((c) => `<i style="background:${esc(swatch(c))}"></i>`).join(""); });
   $$(".pick[data-slot]", form).forEach((b) => b.addEventListener("click", () => {
@@ -918,7 +918,7 @@ let bindHeroDelete = () => {};
 async function viewSettings() {
   const [settings, refs, passkeys, allTryOns] = await Promise.all([getSettings(true), api<any[]>("/api/refs"), api<any[]>("/api/auth/passkeys"), api<Garment[]>("/api/garments?limit=200&owned=0")]);
   // A cover is built from finished looks only: pieces with a studio look, never owned pieces or raw uploads.
-  const garments = allTryOns.filter((g) => g.covers?.white || g.covers?.dark || g.covers?.nature);
+  const garments = allTryOns.filter((g) => g.covers?.white || g.covers?.dark);
   let heroPick: string[] = [];
   let heroStyle = settings.hero_styles?.[0] ?? "nyc";
   const b = settings.budget;
@@ -929,7 +929,7 @@ async function viewSettings() {
       <p class="lead">Campaign covers rotate on the landing page every 10 seconds. Pick 2–3 of your finished looks and a location, then generate (about 90 seconds), or upload a finished cover.</p>
       <div class="heroes" id="heroes">${(settings.heroes ?? []).map(heroTile).join("")}</div>
       <div class="chips" id="styles" style="margin-bottom:12px">${(settings.hero_styles ?? []).map((s) => `<button class="chip ${s === heroStyle ? "on" : ""}" data-style="${s}">${esc(STYLE_LABEL[s] ?? s)}</button>`).join("")}</div>
-      <div class="picker" id="picker">${garments.map((g) => { const l = g.covers?.white ?? g.covers?.dark ?? g.covers?.nature!; return `<div class="pick" data-id="${g.id}" title="${esc(g.name)}" role="button" tabindex="0"><img src="${img(l.thumb_key ?? l.r2_key)}" alt="" /></div>`; }).join("") || `<span class="muted">No finished looks yet. Try on a piece first.</span>`}</div>
+      <div class="picker" id="picker">${garments.map((g) => { const l = (g.covers?.white ?? g.covers?.dark)!; return `<div class="pick" data-id="${g.id}" title="${esc(g.name)}" role="button" tabindex="0"><img src="${img(l.thumb_key ?? l.r2_key)}" alt="" /></div>`; }).join("") || `<span class="muted">No finished looks yet. Try on a piece first.</span>`}</div>
       <div class="row" style="margin-top:12px"><button class="btn" id="hero-go" disabled ${(settings.heroes ?? []).some((h) => h.status === "pending") ? "data-inflight" : ""}>Generate campaign</button><label class="btn ghost" for="hero-file">Upload cover<input type="file" id="hero-file" accept="image/*" hidden /></label><span class="muted" style="font-size:12px" id="hero-hint">Pick 2–3 garments</span></div>
     </section>
     <section><h2>Reference photos of you</h2>

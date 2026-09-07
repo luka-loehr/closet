@@ -2,8 +2,8 @@
 // Recipe (validated 2026-09-06): the approved base full-body photo is the only identity input; the model edits it.
 // Nothing about the face is described in words: the base photo carries the identity.
 
-export type Variant = "white" | "dark" | "nature";
-export const VARIANTS: Variant[] = ["white", "dark", "nature"];
+export type Variant = "white" | "dark";
+export const VARIANTS: Variant[] = ["white", "dark"];
 
 import { CATEGORY_IDS, detailFills, familyOf, slotsOf, studioHow, type Slot } from "./taxonomy";
 export { slotsOf };
@@ -19,7 +19,6 @@ export const PAIRABLE: Slot[] = ["top", "bottom", "shoes", "outerwear"];
 const LOOK_ENV: Record<Variant, string> = {
   white: "Keep the white studio background exactly as it is.",
   dark: "Change the background to a seamless dark charcoal photo studio with a soft rim light behind him and a soft floor shadow; relight him to match.",
-  nature: "Change the background to a bright white photo studio decorated with potted olive trees, monstera plants, tall grasses and sandstone rocks around him; keep the lighting soft and bright.",
 };
 
 export type Paired = { slot: Slot; name: string };
