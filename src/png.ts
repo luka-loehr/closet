@@ -68,20 +68,6 @@ export async function decodePng(buf: ArrayBuffer): Promise<Rgba> {
   return { width, height, data: out };
 }
 
-/** Alpha-blend the image onto a plate of the same size (an opaque RGBA image); returns opaque RGB pixels. */
-export function compositeOver(img: Rgba, plate: Rgba): Uint8Array {
-  if (plate.width !== img.width || plate.height !== img.height) throw new Error(`plate is ${plate.width}x${plate.height}, cutout is ${img.width}x${img.height}`);
-  const { data } = img, p = plate.data;
-  const out = new Uint8Array(img.width * img.height * 3);
-  for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
-    const a = data[i + 3] / 255, ia = 1 - a;
-    out[j] = Math.round(data[i] * a + p[i] * ia);
-    out[j + 1] = Math.round(data[i + 1] * a + p[i + 1] * ia);
-    out[j + 2] = Math.round(data[i + 2] * a + p[i + 2] * ia);
-  }
-  return out;
-}
-
 /** Alpha-blend the image onto a flat colour; returns opaque RGB pixels. */
 export function flatten(img: Rgba, rgb: [number, number, number]): Uint8Array {
   const { width, height, data } = img;
@@ -121,12 +107,12 @@ export function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", ""); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 }
 
-/** The whole compositing step: cutout PNG in, opaque PNG out — over a studio plate PNG when given, else on a flat colour. */
-export async function flattenPng(cutout: ArrayBuffer, color: string, plate?: ArrayBuffer): Promise<Uint8Array> {
+/** The whole compositing step: cutout PNG in, opaque PNG on the given colour out. */
+export async function flattenPng(cutout: ArrayBuffer, color: string): Promise<Uint8Array> {
   const img = await decodePng(cutout);
   const t0 = Date.now();
-  const rgb = plate ? compositeOver(img, await decodePng(plate)) : flatten(img, hexToRgb(color));
+  const rgb = flatten(img, hexToRgb(color));
   const png = await encodePngRgb(img.width, img.height, rgb);
-  console.log(`composite ${img.width}x${img.height} ${plate ? "on plate" : "on " + color} in ${Date.now() - t0} ms`);
+  console.log(`flatten ${img.width}x${img.height} on ${color} in ${Date.now() - t0} ms`);
   return png;
 }
