@@ -1,0 +1,60 @@
+<svg width="1280" height="320" viewBox="0 0 1280 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="closet banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d0d0d"/>
+      <stop offset="0.6" stop-color="#121212"/>
+      <stop offset="1" stop-color="#181816"/>
+    </linearGradient>
+    <linearGradient id="studio" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dcdcda"/>
+    </linearGradient>
+    <linearGradient id="dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3a3a"/>
+      <stop offset="1" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <linearGradient id="nature" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f4f1"/>
+      <stop offset="1" stop-color="#cfd8c6"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f5f5f4"/>
+      <stop offset="1" stop-color="#a8a8a4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="320" fill="url(#bg)"/>
+
+  <!-- three look cards: studio · dark · nature -->
+  <g transform="translate(64 52)">
+    <rect x="0" y="0" width="120" height="160" rx="6" fill="url(#studio)"/>
+    <rect x="34" y="52" width="52" height="66" rx="8" fill="#111111" opacity="0.9"/>
+    <rect x="42" y="118" width="14" height="30" rx="3" fill="#2a2f3a" opacity="0.9"/>
+    <rect x="64" y="118" width="14" height="30" rx="3" fill="#2a2f3a" opacity="0.9"/>
+    <circle cx="60" cy="36" r="13" fill="#c9b8a6"/>
+
+    <rect x="136" y="0" width="120" height="160" rx="6" fill="url(#dark)"/>
+    <rect x="170" y="52" width="52" height="66" rx="8" fill="#e9e9e6" opacity="0.95"/>
+    <rect x="178" y="118" width="14" height="30" rx="3" fill="#0f1116"/>
+    <rect x="200" y="118" width="14" height="30" rx="3" fill="#0f1116"/>
+    <circle cx="196" cy="36" r="13" fill="#c9b8a6"/>
+    <rect x="136" y="150" width="120" height="10" rx="0" fill="#000000" opacity="0.35"/>
+
+    <rect x="272" y="0" width="120" height="160" rx="6" fill="url(#nature)"/>
+    <path d="M286 150 C288 118 300 104 308 92 C312 110 302 128 300 150 Z" fill="#6f8a5e" opacity="0.8"/>
+    <path d="M376 150 C374 120 362 106 356 94 C350 112 362 130 364 150 Z" fill="#7d9668" opacity="0.8"/>
+    <rect x="306" y="52" width="52" height="66" rx="8" fill="#243a5e" opacity="0.95"/>
+    <rect x="314" y="118" width="14" height="30" rx="3" fill="#d9d5cc"/>
+    <rect x="336" y="118" width="14" height="30" rx="3" fill="#d9d5cc"/>
+    <circle cx="332" cy="36" r="13" fill="#c9b8a6"/>
+
+    <text x="60" y="190" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#6b6b68" letter-spacing="2">STUDIO</text>
+    <text x="196" y="190" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#6b6b68" letter-spacing="2">DARK</text>
+    <text x="332" y="190" text-anchor="middle" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#6b6b68" letter-spacing="2">NATURE</text>
+  </g>
+
+  <text x="520" y="132" font-family="'Inter Tight','Inter',-apple-system,'Helvetica Neue',Arial,sans-serif" font-size="88" font-weight="800" fill="url(#accent)" letter-spacing="-4">closet</text>
+  <text x="524" y="168" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="16" fill="#8b8b87" letter-spacing="2">PRIVATE VIRTUAL TRY-ON STORE · CLOSET.LUKALOEHR.COM</text>
+  <text x="524" y="200" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="13" fill="#5d5d5a">paste a product photo · get yourself wearing it in three studio setups</text>
+
+  <text x="524" y="290" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="13" fill="#4a4a47">cloudflare workers · hono · d1 · r2 · queues · images · passkeys · openai gpt-image-2</text>
+</svg>

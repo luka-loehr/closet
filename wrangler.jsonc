@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "closet",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/img/*"]
+  },
+  "routes": [{ "pattern": "closet.lukaloehr.com", "custom_domain": true }],
+  "observability": { "enabled": true },
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [
+    { "binding": "DB", "database_name": "closet", "database_id": "b1de460f-2abb-437d-a808-8681f4b4fc2e", "migrations_dir": "migrations" }
+  ],
+  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "closet-images" }],
+  "images": { "binding": "IMG" },
+  "queues": {
+    "producers": [{ "binding": "JOBS", "queue": "closet-jobs" }],
+    "consumers": [{ "queue": "closet-jobs", "max_batch_size": 1, "max_batch_timeout": 0, "max_retries": 0, "max_concurrency": 8 }]
+  },
+  "vars": {
+    "ALLOWED_EMAIL": "luka@lukaloehr.com",
+    "RP_ID": "closet.lukaloehr.com",
+    "ORIGIN": "https://closet.lukaloehr.com",
+    "DAIRO_INBOX_ID": "54832e9a-a457-45fd-bd70-49b41baebbee"
+  },
+  "dev": { "port": 8787 }
+}
