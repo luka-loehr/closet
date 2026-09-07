@@ -127,7 +127,7 @@ type GarmentRow = {
   id: string; name: string; brand: string | null; category: string | null; color: string | null; notes: string | null;
   source_url: string | null; r2_key: string; thumb_key: string | null; created_at: number;
   owned: number; draft: number; colors: string | null; description: string | null; covers: string | null; missing: string | null;
-  studio_key: string | null; studio_status: string | null;
+  studio_key: string | null; studio_alt_key: string | null; studio_status: string | null;
 };
 type LookRow = {
   id: string; garment_id: string; variant: string; pose: string; model: string; status: string; r2_key: string | null; thumb_key: string | null;
@@ -350,7 +350,7 @@ app.post("/api/garments", requireAuth, async (c) => {
   const missing = a.missing.length ? a.missing : (["top", "bottom", "shoes"] as Slot[]).filter((x) => !covers.includes(x));
   await c.env.DB.prepare(
     "INSERT INTO garments (id, name, brand, category, color, notes, source_url, r2_key, thumb_key, created_at, owned, draft, colors, description, covers, missing, studio_key, studio_status) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, NULL)",
-  ).bind(id, a.name ?? "New Piece", a.brand, category, a.colors.join(", ") || null, sourceUrl, stored.key, stored.thumb_key, now(), owned, JSON.stringify(a.colors), a.description, JSON.stringify(covers), JSON.stringify(missing), a.clean_product_shot ? stored.key : null).run();
+  ).bind(id, a.name ?? "New Piece", a.brand, category, a.colors.join(", ") || null, sourceUrl, stored.key, stored.thumb_key, now(), owned, JSON.stringify(a.colors), a.description, JSON.stringify(covers), JSON.stringify(missing), null).run();
   const g = await garmentWithLooks(c.env, id);
   return c.json({ ...g, analysis: { model: a.model, ms: a.ms, found_brand: !!a.brand, found_name: !!a.name, clean_product_shot: a.clean_product_shot } });
 });
@@ -363,7 +363,7 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
   const id = c.req.param("id");
   const g = await c.env.DB.prepare("SELECT * FROM garments WHERE id = ?").bind(id).first<GarmentRow>();
   if (!g) return c.json({ error: "not found" }, 404);
-  const b = await c.req.json<{ name?: string; brand?: string | null; category?: string; colors?: string[]; description?: string | null; owned?: boolean; pairing?: Record<string, string | null>; quality?: Quality; clean?: boolean }>().catch(() => null);
+  const b = await c.req.json<{ name?: string; brand?: string | null; category?: string; colors?: string[]; description?: string | null; owned?: boolean; pairing?: Record<string, string | null>; quality?: Quality }>().catch(() => null);
   if (!b || typeof b !== "object") throw new BadRequest("invalid body");
   const name = String(b.name ?? g.name).trim().slice(0, 120) || g.name;
   const brand = b.brand === undefined ? g.brand : b.brand ? String(b.brand).trim().slice(0, 60) : null;
@@ -390,15 +390,10 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
     }
   }
 
-  let studioStatus = g.studio_status;
-  let studioKey = g.studio_key;
-  if (owned && wasDraft) {
-    if (b.clean === true) { studioKey = g.r2_key; studioStatus = "done"; }
-    else if (!studioKey) studioStatus = "pending";
-    else studioStatus = "done";
-  }
-  await c.env.DB.prepare("UPDATE garments SET name = ?, brand = ?, category = ?, color = ?, colors = ?, description = ?, owned = ?, draft = 0, covers = ?, studio_key = ?, studio_status = ? WHERE id = ?")
-    .bind(name, brand, category, colors.join(", ") || null, JSON.stringify(colors), description, owned, JSON.stringify(covers.length ? covers : arr(g.covers)), studioKey, studioStatus, id).run();
+  // An owned piece is always rendered as studio shots (phone photos are never shown as the product image).
+  const studioStatus = owned && wasDraft ? "pending" : g.studio_status;
+  await c.env.DB.prepare("UPDATE garments SET name = ?, brand = ?, category = ?, color = ?, colors = ?, description = ?, owned = ?, draft = 0, covers = ?, studio_status = ? WHERE id = ?")
+    .bind(name, brand, category, colors.join(", ") || null, JSON.stringify(colors), description, owned, JSON.stringify(covers.length ? covers : arr(g.covers)), studioStatus, id).run();
 
   if (owned && wasDraft && studioStatus === "pending") await c.env.JOBS.send({ kind: "studio", id } satisfies Job);
   if (!owned && wasDraft) {
@@ -436,10 +431,10 @@ app.patch("/api/garments/:id", requireAuth, async (c) => {
 
 app.delete("/api/garments/:id", requireAuth, async (c) => {
   const id = c.req.param("id");
-  const g = await c.env.DB.prepare("SELECT r2_key, studio_key FROM garments WHERE id = ?").bind(id).first<{ r2_key: string; studio_key: string | null }>();
+  const g = await c.env.DB.prepare("SELECT r2_key, studio_key, studio_alt_key FROM garments WHERE id = ?").bind(id).first<{ r2_key: string; studio_key: string | null; studio_alt_key: string | null }>();
   if (!g) return c.json({ ok: true });
   const looks = await c.env.DB.prepare("SELECT r2_key FROM looks WHERE garment_id = ? AND r2_key IS NOT NULL").bind(id).all<{ r2_key: string }>();
-  const studio = g.studio_key && g.studio_key !== g.r2_key ? imageKeys(g.studio_key) : [];
+  const studio = [...(g.studio_key && g.studio_key !== g.r2_key ? imageKeys(g.studio_key) : []), ...imageKeys(g.studio_alt_key)];
   await c.env.IMAGES.delete([...imageKeys(g.r2_key), ...studio, ...looks.results.flatMap((l) => imageKeys(l.r2_key))]);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM looks WHERE garment_id = ?").bind(id),

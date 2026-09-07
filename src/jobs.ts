@@ -1,7 +1,7 @@
 import type { Env, Job } from "./env";
 import { editImage, IMAGE_MODEL, type ImageInput, type Quality } from "./openai";
 import { storeImage } from "./images";
-import { buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, type HeroStyle, type Paired, type Slot, type Variant } from "./prompts";
+import { buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioViews, type HeroStyle, type Paired, type Slot, type Variant } from "./prompts";
 
 // Generation runs here, on the queue consumer, so a closed tab cannot cancel it.
 // The HTTP layer only inserts a pending row and enqueues { kind, id }; the client polls.
@@ -69,15 +69,18 @@ async function runLook(env: Env, id: string): Promise<void> {
   }
 }
 
-/** Wardrobe piece: a clean studio product shot of the piece alone, so the closet reads like a shop. */
+/** Wardrobe piece: clean studio product shots of the piece alone (two perspectives for shoes), so the closet reads like a shop. */
 async function runStudio(env: Env, id: string): Promise<void> {
   const g = await env.DB.prepare("SELECT id, name, category, r2_key, studio_status FROM garments WHERE id = ?").bind(id).first<{ id: string; name: string; category: string | null; r2_key: string; studio_status: string | null }>();
   if (!g || g.studio_status !== "pending") return;
   try {
     const src = await loadR2Image(env, g.r2_key);
-    const r = await editImage({ key: env.OPENAI_API_KEY, images: [src], prompt: buildStudioPrompt(g.category, g.name), size: STUDIO_SIZE, quality: "medium" });
-    const stored = await storeImage(env, `studio/${id}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true, fullWidth: 1024 });
-    await env.DB.prepare("UPDATE garments SET studio_status = 'done', studio_key = ? WHERE id = ?").bind(stored.key, id).run();
+    const views = studioViews(g.category);
+    const shots = await Promise.all(views.map(async (view) => {
+      const r = await editImage({ key: env.OPENAI_API_KEY, images: [src], prompt: buildStudioPrompt(g.category, g.name, view), size: STUDIO_SIZE, quality: "medium" });
+      return storeImage(env, view === "main" ? `studio/${id}` : `studio/${id}-${view}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true, fullWidth: 1024 });
+    }));
+    await env.DB.prepare("UPDATE garments SET studio_status = 'done', studio_key = ?, studio_alt_key = ? WHERE id = ?").bind(shots[0].key, shots[1]?.key ?? null, id).run();
   } catch (e: any) {
     // The upload stays the card image; the error is visible in the piece view.
     await env.DB.prepare("UPDATE garments SET studio_status = 'error', notes = COALESCE(notes, '') || ? WHERE id = ?").bind(`\n[studio shot failed: ${String(e?.message ?? e).slice(0, 300)}]`, id).run();

@@ -4,7 +4,7 @@ import { startAuthentication, startRegistration, browserSupportsWebAuthn, browse
 type Look = { id: string; garment_id: string; variant: string; pose: string; model: string; status: string; r2_key: string | null; thumb_key: string | null; error: string | null; duration_ms: number | null; created_at: number; pairing?: string[] };
 type Garment = {
   id: string; name: string; brand: string | null; category: string | null; color: string | null; notes: string | null; source_url: string | null; r2_key: string; thumb_key: string | null; created_at: number;
-  owned: number; draft: number; colors: string[]; description: string | null; missing: string[]; studio_key: string | null; studio_status: string | null;
+  owned: number; draft: number; colors: string[]; description: string | null; missing: string[]; studio_key: string | null; studio_alt_key: string | null; studio_status: string | null;
   covers?: Record<string, Look>; looks?: Look[]; paired?: Garment[]; pending?: number; slots?: string[];
   analysis?: { model: string | null; ms: number; found_brand: boolean; found_name: boolean; clean_product_shot: boolean };
 };
@@ -32,7 +32,9 @@ const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const swatch = (name: string) => { const n = name.toLowerCase().trim(); if (SWATCH[n]) return SWATCH[n]; const last = n.split(/[\s-]+/).pop() ?? n; if (SWATCH[last]) return SWATCH[last]; return CSS.supports("color", n) ? n : "#c8c8c8"; };
 const swatches = (colors: string[] | undefined) => (colors?.length ? `<span class="swatches">${colors.map((c) => `<i style="background:${esc(swatch(c))}" title="${esc(c)}"></i>`).join("")}</span>` : "");
 /** The wardrobe image of a piece: the studio shot once it exists, else the upload. */
-const pieceImg = (g: Garment, thumb = true) => { if (g.studio_key && g.studio_key !== g.r2_key) return img(thumb && g.studio_key.endsWith(".webp") ? g.studio_key.replace(/\.webp$/, ".t.webp") : g.studio_key); return img(thumb ? g.thumb_key ?? g.r2_key : g.r2_key); };
+const thumbOf = (key: string, thumb: boolean) => img(thumb && key.endsWith(".webp") ? key.replace(/\.webp$/, ".t.webp") : key);
+const pieceImg = (g: Garment, thumb = true) => { if (g.studio_key && g.studio_key !== g.r2_key) return thumbOf(g.studio_key, thumb); return img(thumb ? g.thumb_key ?? g.r2_key : g.r2_key); };
+const pieceAlt = (g: Garment, thumb = true) => (g.studio_alt_key ? thumbOf(g.studio_alt_key, thumb) : "");
 const slotsOf = (cat: string | null | undefined) => SLOT_OF[cat ?? ""] ?? [];
 const app = $("#app")!;
 let me: { authenticated: boolean; email?: string; passkeys?: number } = { authenticated: false };
@@ -160,8 +162,9 @@ function card(g: Garment, i = 0): string {
 function pieceCard(g: Garment, i = 0): string {
   const generating = g.studio_status === "pending";
   const meta = [g.brand, CAT_LABEL[g.category ?? ""] ?? g.category].filter(Boolean).join(" · ");
+  const alt = pieceAlt(g);
   return `<a class="card piece" href="/p/${g.id}" data-pid="${g.id}" style="--i:${i}">
-    <div class="tile ${generating ? "skeleton" : ""}"><img class="product" src="${pieceImg(g)}" alt="" loading="lazy" decoding="async" />${generating ? `<div class="status">Studio shot…</div>` : ""}</div>
+    <div class="tile ${generating ? "skeleton" : ""}"><img class="product ${generating ? "raw" : ""}" src="${pieceImg(g)}" alt="" loading="lazy" decoding="async" />${alt ? `<img class="product alt" src="${alt}" alt="" loading="lazy" decoding="async" />` : ""}${generating ? `<div class="status">Studio shots…</div>` : ""}</div>
     <div class="info"><div class="name">${esc(g.name)}</div>${meta ? `<div class="meta">${esc(meta)}</div>` : ""}<div class="variants">${swatches(g.colors)}</div></div>
   </a>`;
 }
@@ -473,7 +476,7 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
       <div class="field"><label>Description</label><textarea class="input" name="description" maxlength="300" rows="2">${esc(g.description ?? "")}</textarea></div>
     </div>
     ${slotsToPick.length ? `<div class="complete"><div class="section-head" style="margin:6px 0 10px"><h2>Complete the fit</h2><span class="muted" style="font-size:11px">Pieces from your closet are worn with it</span></div>${slotsToPick.map(pickerRow).join("")}</div>` : ""}
-    <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? (a?.clean_product_shot ? "The photo is already a product shot; it is used as is." : "A clean studio shot is generated in the background (~40 s).") : "Three looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
+    <div class="row" style="margin-top:22px"><button class="btn" id="submit">${own ? "Add to closet" : "Generate looks"}</button><button class="btn ghost" id="cancel" type="button">Discard</button><span class="muted" style="font-size:12px">${own ? "Clean studio shots on white are generated from your photo in the background (~40 s; shoes get a side and a three-quarter view)." : "Three looks are generated in the background (~40 s each). You can leave right away."}</span></div>`;
   const colorsIn = $<HTMLInputElement>("[name=colors]", form)!;
   colorsIn.addEventListener("input", () => { const cs = colorsIn.value.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 3); $("#sw")!.innerHTML = cs.map((c) => `<i style="background:${esc(swatch(c))}"></i>`).join(""); });
   $$(".pick[data-slot]", form).forEach((b) => b.addEventListener("click", () => {
@@ -494,7 +497,7 @@ async function startAdd(src: { file?: File; url?: string; dataUrl?: string }) {
     try {
       await api(`/api/garments/${g.id}/commit`, { method: "POST", body: JSON.stringify({
         name: val("name"), brand: val("brand") || null, category: val("category"), colors: val("colors").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 3),
-        description: val("description") || null, owned: own, pairing: pick, clean: a?.clean_product_shot === true,
+        description: val("description") || null, owned: own, pairing: pick,
       }) });
       toast(own ? "Added to your closet." : "Generating your looks in the background.");
       navigate(own ? "/closet" : "/", true);
@@ -521,15 +524,17 @@ async function openPiece(id: string, push = true) {
   else if (!push && location.pathname !== `/p/${id}`) history.replaceState({ piece: id }, "", `/p/${id}`);
   const el = document.createElement("div");
   el.className = "viewer piece";
-  const hasStudio = g.studio_key && g.studio_key !== g.r2_key;
+  const hasStudio = !!(g.studio_key && g.studio_key !== g.r2_key);
+  const pending = g.studio_status === "pending";
   el.innerHTML = `
     <div class="v-head">
       <div><div class="v-name">${esc(g.name)}</div><div class="v-meta">${esc([g.brand, CAT_LABEL[g.category ?? ""] ?? g.category].filter(Boolean).join(" · "))} ${swatches(g.colors)}</div>${g.description ? `<p class="v-desc">${esc(g.description)}</p>` : ""}</div>
       <button class="v-close" aria-label="Close">×</button>
     </div>
     <div class="v-row one">
-      <figure class="v-panel" style="--i:0"><div class="v-tile product ${g.studio_status === "pending" ? "skeleton" : ""}"><img src="${pieceImg(g, false)}" alt="" /></div><figcaption>${g.studio_status === "pending" ? "Studio shot generating…" : hasStudio ? "Studio shot" : "Product photo"}</figcaption></figure>
-      ${hasStudio ? `<figure class="v-panel" style="--i:1"><div class="v-tile product"><img src="${img(g.r2_key)}" alt="" /></div><figcaption>Original upload</figcaption></figure>` : ""}
+      <figure class="v-panel" style="--i:0"><div class="v-tile product ${pending ? "skeleton" : ""}"><img src="${pieceImg(g, false)}" alt="" class="${pending ? "raw" : ""}" /></div><figcaption>${pending ? "Studio shots generating…" : hasStudio ? (g.studio_alt_key ? "Side view" : "Studio shot") : g.studio_status === "error" ? "Studio shot failed · your photo" : "Your photo"}</figcaption></figure>
+      ${g.studio_alt_key ? `<figure class="v-panel" style="--i:1"><div class="v-tile product"><img src="${pieceAlt(g, false)}" alt="" /></div><figcaption>Three-quarter view</figcaption></figure>` : ""}
+      ${hasStudio ? `<figure class="v-panel" style="--i:2"><div class="v-tile product"><img src="${img(g.r2_key)}" alt="" class="raw" /></div><figcaption>Your photo</figcaption></figure>` : ""}
     </div>
     <div class="v-foot"><span class="muted" style="font-size:11px">${g.source_url ? `<a href="${esc(g.source_url)}" target="_blank" rel="noopener">Source ↗</a>` : "Owned"}</span><button class="v-del">Remove from closet</button></div>`;
   document.body.appendChild(el); document.body.classList.add("noscroll"); pieceEl = el;

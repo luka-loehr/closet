@@ -49,14 +49,25 @@ export function buildLookPrompt(variant: Variant, paired: Paired[] = []): string
   return `The first image is a photo of a person, the second image shows a garment. Edit the first image: dress the person in the garment from the second image, reproduced exactly (color, fabric, logos, cut). If the garment image shows a full outfit (top and trousers), replace both his t-shirt and his jeans; if it shows only a top, replace only his t-shirt and keep his jeans; if it shows only trousers, replace only his jeans; if it shows shoes, replace only his shoes. ${pairs ? pairs + " Each piece must be reproduced exactly as shown (color, materials, logos, shape). " : ""}Keep his face, hair, skin, body proportions, pose, hands and ${kept} exactly as in the first image, and keep the framing identical. ${LOOK_ENV[variant] ?? LOOK_ENV.white} Photorealistic e-commerce quality, no text.`;
 }
 
-/** Wardrobe product shot: image 1 = the uploaded piece (worn, on a hanger, or on a busy background). */
-export function buildStudioPrompt(category: string | null, name: string): string {
-  const how = category === "shoes"
-    ? "a single shoe photographed from the side, toe pointing left, resting on the floor"
-    : category === "pants" || category === "shorts"
-      ? "laid out flat and neatly, front view"
-      : "floating as if worn by an invisible mannequin (ghost mannequin), front view, sleeves relaxed";
-  return `Create a clean e-commerce product photo of only the garment shown in the image (${name}): ${how}, centered, on a seamless plain white studio background with soft even light and a faint soft shadow. Reproduce the piece exactly (color, fabric texture, logos, stitching, proportions). Remove any person, hanger, mannequin, other clothing and background. No text, no watermark.`;
+/** Wardrobe product shots: image 1 = the uploaded piece (a phone photo, worn, on a hanger, or on a busy background). */
+export type StudioView = "main" | "alt";
+export function studioViews(category: string | null): StudioView[] {
+  return category === "shoes" ? ["main", "alt"] : ["main"];
+}
+export function buildStudioPrompt(category: string | null, name: string, view: StudioView = "main"): string {
+  let how: string;
+  if (category === "shoes") {
+    how = view === "alt"
+      ? "the pair of shoes seen from a three-quarter front angle slightly from above, both shoes side by side, laces visible, resting on the floor"
+      : "a single shoe in exact side profile, toe pointing to the left, resting flat on the floor, like a sneaker listing on a shop";
+  } else if (category === "pants" || category === "shorts") {
+    how = "laid out flat and neatly from directly above, front view, legs straight";
+  } else if (category === "accessory") {
+    how = "laid out flat from directly above";
+  } else {
+    how = "floating as if worn by an invisible mannequin (ghost mannequin), front view, sleeves relaxed, zips and buttons closed";
+  }
+  return `Create a clean e-commerce product photo of only the item shown in the image (${name}): ${how}, centered with even margins, on a seamless pure white (#FFFFFF) studio background with soft even lighting and a faint soft contact shadow. Reproduce the item exactly: color, materials, texture, logos, stitching, wear and proportions must match the photo. Remove any person, feet, hands, hanger, mannequin, other clothing, floor and background. Sharp, true-to-color, no text, no watermark.`;
 }
 
 // Campaign covers: the same person three times in one frame, on location.

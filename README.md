@@ -40,13 +40,12 @@ face is ever described in words — the base photo carries the identity.
 | --- | --- | ---: | --- | ---: |
 | analysis (form + what is missing) | garment photo | — | Gemini 3.8 Flash, thinking off | ≈ 3 s |
 | look (white · dark · nature) | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 40 s |
-| studio shot of an owned piece | the upload | 1024×1024 | medium | ≈ 30 s |
+| studio shots of an owned piece (two for shoes) | my phone photo | 1024×1024 | medium | ≈ 30 s each |
 | campaign cover | base photo + 2–3 garments | 1920×1088 (16:9) | high | ≈ 90 s |
 
 Adding a piece is two steps. The upload runs the analysis first: it
 fills name, brand, category, up to three colours and a one-line
-description, says whether the photo is already a clean product shot,
-and lists which slots a complete fit still lacks (a tracksuit lacks
+description, and lists which slots a complete fit still lacks (a tracksuit lacks
 shoes; a hoodie lacks bottom and shoes). The form comes back
 pre-filled; what the model could not recognise (usually the brand) is
 left for me to type. For a try-on, each missing slot offers the pieces
@@ -73,11 +72,13 @@ until the queue delivers.
   `generateContent` call with a response schema and `thinkingBudget: 0`,
   so it returns typed JSON in about three seconds. Without a
   `GEMINI_API_KEY` the form falls back to `gpt-5-mini` naming.
-- Owned pieces live in the same `garments` table with `owned = 1`. A
-  piece uploaded as an on-model or lifestyle photo gets a `studio` job
-  that renders it alone on white (ghost mannequin for tops, flat lay
-  for trousers, a single side-view shoe); a clean product upload is
-  kept as is. Looks store the `pairing` they were generated with.
+- Owned pieces live in the same `garments` table with `owned = 1`.
+  They are photographed with the phone; the photo is never the product
+  image. A `studio` job renders the piece alone on pure white: ghost
+  mannequin for tops, flat lay for trousers and accessories, and for
+  shoes two perspectives — an exact side profile and a three-quarter
+  view of the pair — that the closet card crossfades between on hover.
+  Looks store the `pairing` they were generated with.
 - Every stored image is WebP: full size up to 2048 px at quality 86 plus
   a 640 px thumbnail for grids, converted at write time with the Images
   binding so serving is a plain R2 read with immutable cache headers
@@ -225,7 +226,7 @@ history.
 | Store | Name | Holds |
 | --- | --- | --- |
 | D1 | `closet` | `garments`, `looks`, `heroes`, `reference_photos`, `settings`, plus `sessions`, `email_codes`, `challenges`, `passkeys`. |
-| R2 | `closet-images` | `garments/<id>.webp`, `studio/<id>.webp`, `looks/<id>.webp`, `heroes/<id>.webp`, `refs/<id>` and their `.t.webp` thumbnails. |
+| R2 | `closet-images` | `garments/<id>.webp`, `studio/<id>.webp` (+ `-alt` for shoes), `looks/<id>.webp`, `heroes/<id>.webp`, `refs/<id>` and their `.t.webp` thumbnails. |
 | Queue | `closet-jobs` | `{ kind: "look" \| "hero", id }` messages, consumed in-Worker. |
 | Images | binding `IMG` | Write-time WebP conversion; serving never touches it. |
 
