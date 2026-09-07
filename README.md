@@ -1,4 +1,4 @@
-![closet banner](docs/assets/banner.svg)
+![closet banner](docs/assets/banner.png)
 
 [![Runtime](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat&logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
 [![Framework](https://img.shields.io/badge/Hono-4-E36002?style=flat&logo=hono&logoColor=white)](https://hono.dev)
