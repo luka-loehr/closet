@@ -4,6 +4,7 @@
 [![Framework](https://img.shields.io/badge/Hono-4-E36002?style=flat&logo=hono&logoColor=white)](https://hono.dev)
 [![Language](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Generator](https://img.shields.io/badge/OpenAI-gpt--image--2-000000?style=flat&logo=openai&logoColor=white)](https://platform.openai.com/docs/guides/image-generation)
+[![Analysis](https://img.shields.io/badge/Gemini-3.8%20Flash-4285F4?style=flat&logo=google&logoColor=white)](https://ai.google.dev/gemini-api/docs/structured-output)
 [![Auth](https://img.shields.io/badge/auth-passkeys%20(WebAuthn)-1f6feb?style=flat)](https://simplewebauthn.dev)
 [![Visibility](https://img.shields.io/badge/repo-private-6e7681?style=flat)](#9-security-and-license)
 
@@ -15,10 +16,15 @@ cyclorama, a dark studio, and a bright studio with plants. Campaign
 covers on location (New York, a black-sand beach, a rooftop, …) rotate
 on the landing page.
 
+The closet also holds what I already own — shoes, jeans, tees — as
+clean studio product shots, so a new piece can be tried on together
+with my own sneakers instead of the base photo's.
+
 I built the whole thing as one Cloudflare Worker: the Hono API, the
-queue consumer that talks to OpenAI, WebP conversion through the Images
-binding, passkey and email-code login, and a dependency-free
-TypeScript single-page client served from the same Worker. There is no
+queue consumer that talks to OpenAI, the Gemini vision pass that fills
+the form, WebP conversion through the Images binding, passkey and
+email-code login, and a dependency-free TypeScript single-page client
+served from the same Worker. There is no
 framework on the client, no build step beyond one `esbuild` bundle, and
 nothing runs outside Cloudflare except the image model.
 
@@ -32,13 +38,21 @@ face is ever described in words — the base photo carries the identity.
 
 | output | inputs | size | quality | wall time |
 | --- | --- | ---: | --- | ---: |
-| look (white · dark · nature) | base photo + 1 garment | 1152×1536 (3:4) | medium | ≈ 40 s |
+| analysis (form + what is missing) | garment photo | — | Gemini 3.8 Flash, thinking off | ≈ 3 s |
+| look (white · dark · nature) | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 40 s |
+| studio shot of an owned piece | the upload | 1024×1024 | medium | ≈ 30 s |
 | campaign cover | base photo + 2–3 garments | 1920×1088 (16:9) | high | ≈ 90 s |
-| catalogue entry | garment photo | — | `gpt-5-mini` | ≈ 3 s |
 
-Cataloguing names the piece like a webshop listing (name, brand,
-category, colour) so the closet can be filtered by category and brand
-without typing anything.
+Adding a piece is two steps. The upload runs the analysis first: it
+fills name, brand, category, up to three colours and a one-line
+description, says whether the photo is already a clean product shot,
+and lists which slots a complete fit still lacks (a tracksuit lacks
+shoes; a hoodie lacks bottom and shoes). The form comes back
+pre-filled; what the model could not recognise (usually the brand) is
+left for me to type. For a try-on, each missing slot offers the pieces
+I own in that slot, and the chosen ones are worn in every generated
+look. Submit returns immediately and the grid shows skeleton cards
+until the queue delivers.
 
 > **Status: live since 2026-09-06.** Generation was moved off the
 > request path onto a Cloudflare Queue the same day, so a closed tab
@@ -55,6 +69,15 @@ without typing anything.
   `pending` row, enqueues `{ kind, id }`, returns `202`, and the client
   polls. Max concurrency 8, one message per batch, no retries — a failed
   look records its error instead of burning another call.
+- The analysis pass ([`src/gemini.ts`](src/gemini.ts)) is one
+  `generateContent` call with a response schema and `thinkingBudget: 0`,
+  so it returns typed JSON in about three seconds. Without a
+  `GEMINI_API_KEY` the form falls back to `gpt-5-mini` naming.
+- Owned pieces live in the same `garments` table with `owned = 1`. A
+  piece uploaded as an on-model or lifestyle photo gets a `studio` job
+  that renders it alone on white (ghost mannequin for tops, flat lay
+  for trousers, a single side-view shoe); a clean product upload is
+  kept as is. Looks store the `pairing` they were generated with.
 - Every stored image is WebP: full size up to 2048 px at quality 86 plus
   a 640 px thumbnail for grids, converted at write time with the Images
   binding so serving is a plain R2 read with immutable cache headers
@@ -103,8 +126,9 @@ Cloudflare Worker — Hono router (src/index.ts)
 | `src/index.ts` | Hono app: routing, garment ingestion, settings, references, looks, heroes, image serving. |
 | `src/auth.ts` | Email codes via Dairo, WebAuthn registration and login, session cookie, `requireAuth`. |
 | `src/jobs.ts` | Queue consumer: `runLook`, `runHero`, base-reference resolution, R2 image loading. |
-| `src/openai.ts` | `images/edits` client (multipart, base64 decode) and the `gpt-5-mini` cataloguing call. |
-| `src/prompts.ts` | The prompt library: three look environments, seven campaign scenes, the naming prompt. |
+| `src/openai.ts` | `images/edits` client (multipart, base64 decode) and the `gpt-5-mini` fallback cataloguing call. |
+| `src/gemini.ts` | The analysis pass: response schema, thinking off, slot logic for what a fit is missing. |
+| `src/prompts.ts` | The prompt library: categories and slots, look prompt with pairing phrases, studio-shot prompt, seven campaign scenes. |
 | `src/images.ts` | WebP conversion and thumbnailing through the Images binding; key bookkeeping for deletes. |
 | `client/` | The single-page client, bundled by `esbuild` into `public/app.js`. |
 | `public/` | `index.html`, `styles.css`, and the built bundle (ignored). |
@@ -134,8 +158,11 @@ npm run migrate                      # apply new D1 migrations remotely
 npm run deploy                       # bundle + wrangler deploy to closet.lukaloehr.com
 ```
 
-Secrets live in Wrangler, not in the config: `OPENAI_API_KEY` and
-`DAIRO_API_KEY` (secret). Plain vars
+Secrets live in Wrangler, not in the config: `OPENAI_API_KEY`,
+`DAIRO_API_KEY` (secret) and
+`GEMINI_API_KEY` (an API key of the `google-cloud-project` Google Cloud project;
+`gcloud services api-keys get-key-string` recovers it). The analysis
+model is the plain var `GEMINI_MODEL`. Plain vars
 (`ALLOWED_EMAIL`, `RP_ID`, `ORIGIN`, `DAIRO_INBOX_ID`) are in
 [`wrangler.jsonc`](wrangler.jsonc).
 
@@ -156,9 +183,11 @@ All routes except login and `/img/*` require a session cookie.
 | `POST /api/auth/logout` | End the session. |
 | `GET` · `PATCH /api/settings` | Base reference, image model/quality. |
 | `GET` · `POST` · `PATCH` · `DELETE /api/refs[/:id]` | Reference photos of the person. |
-| `GET` · `POST /api/garments` | List; add a garment (multipart, `{url}` or `{data}`) → catalogued, three looks enqueued, `202`. |
-| `GET` · `PATCH` · `DELETE /api/garments/:id` | One garment with its looks; edit metadata; delete with images. |
-| `POST /api/garments/:id/looks` | Enqueue an extra variant for a garment. |
+| `GET /api/garments?owned=0|1` | Try-on pieces or the wardrobe; drafts never list. |
+| `POST /api/garments[?owned=1]` | Step 1: store the image, run the analysis, return a pre-filled draft. |
+| `POST /api/garments/:id/commit` | Step 2: the reviewed form plus `pairing` per slot → three looks queued (`202`), or a wardrobe piece with its studio shot queued. |
+| `GET` · `PATCH` · `DELETE /api/garments/:id` | One garment with its looks and paired pieces; edit metadata; delete with images (also discards a draft). |
+| `POST /api/garments/:id/looks` | Enqueue an extra variant for a garment, optionally with a `pairing`. |
 | `DELETE /api/looks/:id` | Remove one look. |
 | `GET /api/heroes` · `POST /api/hero` · `DELETE /api/hero/:id` | Campaign covers: list, generate from 2–3 garments in a scene, delete. |
 | `POST /api/heroes/upload` | Store a cover made elsewhere. |
@@ -175,7 +204,9 @@ only thing the model is asked to do:
 2. **Garments are reproduced, not interpreted.** Colour, fabric, logos,
    cut are to be copied from the second image; a full outfit replaces
    top and trousers, a top replaces only the tee, trousers only the
-   jeans, shoes only the shoes.
+   jeans, shoes only the shoes. Paired pieces from the wardrobe follow
+   as images three onwards, each with a one-line slot instruction
+   ("image 3 shows shoes: replace his shoes with exactly these shoes").
 3. **The variant changes only the environment.** White keeps the studio
    as is; dark relights him in a charcoal studio with a rim light;
    nature dresses the white studio with olive trees, monstera, grasses
@@ -194,7 +225,7 @@ history.
 | Store | Name | Holds |
 | --- | --- | --- |
 | D1 | `closet` | `garments`, `looks`, `heroes`, `reference_photos`, `settings`, plus `sessions`, `email_codes`, `challenges`, `passkeys`. |
-| R2 | `closet-images` | `garments/<id>.webp`, `looks/<id>.webp`, `heroes/<id>.webp`, `refs/<id>` and their `.t.webp` thumbnails. |
+| R2 | `closet-images` | `garments/<id>.webp`, `studio/<id>.webp`, `looks/<id>.webp`, `heroes/<id>.webp`, `refs/<id>` and their `.t.webp` thumbnails. |
 | Queue | `closet-jobs` | `{ kind: "look" \| "hero", id }` messages, consumed in-Worker. |
 | Images | binding `IMG` | Write-time WebP conversion; serving never touches it. |
 
@@ -218,6 +249,9 @@ Choices that shaped the current build, with the reason they stuck.
 | plain uppercase text nav with a sliding underline | replaced a gooey-nav port that added weight without adding clarity |
 | passkeys first, e-mail code as the bootstrap | one allowed address, no passwords to store, works from the phone |
 | `max_retries: 0` on the queue | a failed edit costs real money; record the error and let a human decide |
+| analysis before generation, Gemini Flash with thinking off | the form is filled and the missing slots known in ~3 s; nothing is generated until I have reviewed it |
+| draft rows instead of holding the upload client-side | the image is uploaded once, and a discarded draft is a plain delete |
+| one wardrobe table, not a second entity | an owned piece and a try-on piece share cataloguing, images and deletion; `owned` is a flag |
 
 ## 9. Security and license
 

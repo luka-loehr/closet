@@ -1,4 +1,4 @@
-export type Job = { kind: "look"; id: string } | { kind: "hero"; id: string };
+export type Job = { kind: "look"; id: string } | { kind: "hero"; id: string } | { kind: "studio"; id: string };
 
 export type Env = {
   DB: D1Database;
@@ -10,7 +10,9 @@ export type Env = {
   RP_ID: string;
   ORIGIN: string;
   DAIRO_INBOX_ID: string;
+  GEMINI_MODEL?: string;
   // secrets
   OPENAI_API_KEY: string;
   DAIRO_API_KEY: string;
+  GEMINI_API_KEY?: string;
 };

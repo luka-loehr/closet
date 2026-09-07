@@ -17,7 +17,8 @@ import {
 } from "./auth";
 import { describeGarment, IMAGE_MODEL, type Quality } from "./openai";
 import { imageKeys, storeImage } from "./images";
-import { HERO_STYLES, VARIANTS, type HeroStyle, type Variant } from "./prompts";
+import { CATEGORIES, HERO_STYLES, PAIRABLE, VARIANTS, slotsOf, type HeroStyle, type Slot, type Variant } from "./prompts";
+import { analyzeGarment, DEFAULT_GEMINI_MODEL, type Analysis } from "./gemini";
 import { getSetting, handleQueue } from "./jobs";
 import type { Job } from "./env";
 
@@ -125,11 +126,16 @@ type RefRow = { id: string; r2_key: string; label: string | null; active: number
 type GarmentRow = {
   id: string; name: string; brand: string | null; category: string | null; color: string | null; notes: string | null;
   source_url: string | null; r2_key: string; thumb_key: string | null; created_at: number;
+  owned: number; draft: number; colors: string | null; description: string | null; covers: string | null; missing: string | null;
+  studio_key: string | null; studio_status: string | null;
 };
 type LookRow = {
   id: string; garment_id: string; variant: string; pose: string; model: string; status: string; r2_key: string | null; thumb_key: string | null;
-  error: string | null; prompt: string | null; duration_ms: number | null; created_at: number;
+  error: string | null; prompt: string | null; duration_ms: number | null; created_at: number; pairing: string | null;
 };
+const arr = (v: string | null): string[] => { try { const a = v ? JSON.parse(v) : []; return Array.isArray(a) ? a : []; } catch { return []; } };
+const garmentOut = (g: GarmentRow) => ({ ...g, colors: arr(g.colors), covers: arr(g.covers), missing: arr(g.missing) });
+const lookOut = (l: LookRow) => ({ ...l, pairing: arr(l.pairing) });
 type HeroRow = { id: string; r2_key: string | null; garment_ids: string; style: string; model: string; status: string; error: string | null; duration_ms: number | null; created_at: number };
 const heroOut = (h: HeroRow) => ({ ...h, garment_ids: JSON.parse(h.garment_ids) as string[] });
 
@@ -226,6 +232,9 @@ app.get("/api/settings", requireAuth, async (c) => {
     hero_styles: HERO_STYLES,
     base_ref: await getSetting(c.env, "base_ref"),
     heroes: await getHeroes(c.env),
+    analysis_model: c.env.GEMINI_API_KEY ? c.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL : null,
+    categories: CATEGORIES,
+    slots: PAIRABLE,
   });
 });
 
@@ -287,41 +296,119 @@ app.delete("/api/refs/:id", requireAuth, async (c) => {
 async function garmentWithLooks(env: Env, id: string) {
   const g = await env.DB.prepare("SELECT * FROM garments WHERE id = ?").bind(id).first<GarmentRow>();
   if (!g) return null;
-  // A generation whose request was dropped (tab closed) never finishes: mark it after 10 minutes.
+  // A generation that never came back from the queue is marked after 10 minutes.
   await env.DB.prepare("UPDATE looks SET status = 'error', error = 'generation interrupted' WHERE garment_id = ? AND status = 'pending' AND created_at < ?").bind(id, now() - 600).run();
   const looks = await env.DB.prepare("SELECT * FROM looks WHERE garment_id = ? ORDER BY created_at DESC").bind(id).all<LookRow>();
-  return { ...g, looks: looks.results };
+  const pairedIds = Array.from(new Set(looks.results.flatMap((l) => arr(l.pairing))));
+  const paired = pairedIds.length
+    ? (await env.DB.prepare(`SELECT * FROM garments WHERE id IN (${pairedIds.map(() => "?").join(",")})`).bind(...pairedIds).all<GarmentRow>()).results.map(garmentOut)
+    : [];
+  return { ...garmentOut(g), looks: looks.results.map(lookOut), paired };
 }
 
+/** `owned=1` lists the wardrobe, `owned=0` the try-on pieces, anything else both. Drafts (uploaded, not yet submitted) never list. */
 app.get("/api/garments", requireAuth, async (c) => {
-  const limit = Math.min(200, Math.max(1, parseInt(c.req.query("limit") ?? "", 10) || 100));
-  const gs = await c.env.DB.prepare("SELECT * FROM garments ORDER BY created_at DESC LIMIT ?").bind(limit).all<GarmentRow>();
+  const limit = Math.min(300, Math.max(1, parseInt(c.req.query("limit") ?? "", 10) || 100));
+  const owned = c.req.query("owned");
+  const where = owned === "1" ? "AND owned = 1" : owned === "0" ? "AND owned = 0" : "";
+  const gs = await c.env.DB.prepare(`SELECT * FROM garments WHERE draft = 0 ${where} ORDER BY created_at DESC LIMIT ?`).bind(limit).all<GarmentRow>();
   if (!gs.results.length) return c.json([]);
   const wanted = new Set(gs.results.map((g) => g.id));
   const looks = await c.env.DB.prepare("SELECT * FROM looks WHERE status IN ('done', 'pending') ORDER BY created_at DESC").all<LookRow>();
-  const byGarment = new Map<string, Record<string, LookRow>>();
+  const byGarment = new Map<string, Record<string, ReturnType<typeof lookOut>>>();
   const pending = new Map<string, number>();
   for (const l of looks.results) {
     if (!wanted.has(l.garment_id)) continue;
     if (l.status === "pending") { pending.set(l.garment_id, (pending.get(l.garment_id) ?? 0) + 1); continue; }
     const m = byGarment.get(l.garment_id) ?? {};
-    if (!m[l.variant]) m[l.variant] = l; // newest per variant
+    if (!m[l.variant]) m[l.variant] = lookOut(l); // newest per variant
     byGarment.set(l.garment_id, m);
   }
-  return c.json(gs.results.map((g) => ({ ...g, covers: byGarment.get(g.id) ?? {}, pending: pending.get(g.id) ?? 0 })));
+  return c.json(gs.results.map((g) => ({ ...garmentOut(g), covers: byGarment.get(g.id) ?? {}, slots: slotsOf(g.category), pending: (pending.get(g.id) ?? 0) + (g.studio_status === "pending" ? 1 : 0) })));
 });
 
+/**
+ * Step 1 of adding: store the image and run the fast analysis. The row is a draft until /commit;
+ * the form comes back pre-filled and, for a try-on, `missing` says which slots to complete from the wardrobe.
+ */
 app.post("/api/garments", requireAuth, async (c) => {
   const { mime, bytes, sourceUrl } = await readImageFromRequest(c);
+  const owned = c.req.query("owned") === "1" ? 1 : 0;
   const id = randomId(9);
-  const [stored, meta] = await Promise.all([
+  const [stored, analysis] = await Promise.all([
     storeImage(c.env, `garments/${id}`, bytes, mime, { thumb: true, fullWidth: 1536, quality: 90 }),
-    describeGarment(c.env.OPENAI_API_KEY, { mime, bytes }),
+    analyzeGarment(c.env, { mime, bytes }),
   ]);
+  let a: Analysis = analysis;
+  if (!a.model || (!a.name && !a.category)) {
+    // Gemini unavailable: fall back to the text model so the form is never empty.
+    const m = await describeGarment(c.env.OPENAI_API_KEY, { mime, bytes });
+    a = { ...a, name: a.name ?? m.name, brand: a.brand ?? m.brand, category: a.category ?? (CATEGORIES.includes(m.category as any) ? (m.category as any) : null), colors: a.colors.length ? a.colors : m.color ? [m.color.toLowerCase()] : [] };
+  }
+  const category = a.category ?? "other";
+  const covers = a.covers.length ? a.covers : slotsOf(category);
+  const missing = a.missing.length ? a.missing : (["top", "bottom", "shoes"] as Slot[]).filter((x) => !covers.includes(x));
   await c.env.DB.prepare(
-    "INSERT INTO garments (id, name, brand, category, color, notes, source_url, r2_key, thumb_key, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)",
-  ).bind(id, meta.name, meta.brand, meta.category, meta.color, sourceUrl, stored.key, stored.thumb_key, now()).run();
-  return c.json(await garmentWithLooks(c.env, id));
+    "INSERT INTO garments (id, name, brand, category, color, notes, source_url, r2_key, thumb_key, created_at, owned, draft, colors, description, covers, missing, studio_key, studio_status) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, NULL)",
+  ).bind(id, a.name ?? "New Piece", a.brand, category, a.colors.join(", ") || null, sourceUrl, stored.key, stored.thumb_key, now(), owned, JSON.stringify(a.colors), a.description, JSON.stringify(covers), JSON.stringify(missing), a.clean_product_shot ? stored.key : null).run();
+  const g = await garmentWithLooks(c.env, id);
+  return c.json({ ...g, analysis: { model: a.model, ms: a.ms, found_brand: !!a.brand, found_name: !!a.name, clean_product_shot: a.clean_product_shot } });
+});
+
+/**
+ * Step 2: the reviewed form. A try-on piece gets its three looks queued (paired with wardrobe pieces per slot);
+ * a wardrobe piece gets a studio product shot queued unless the upload already is one.
+ */
+app.post("/api/garments/:id/commit", requireAuth, async (c) => {
+  const id = c.req.param("id");
+  const g = await c.env.DB.prepare("SELECT * FROM garments WHERE id = ?").bind(id).first<GarmentRow>();
+  if (!g) return c.json({ error: "not found" }, 404);
+  const b = await c.req.json<{ name?: string; brand?: string | null; category?: string; colors?: string[]; description?: string | null; owned?: boolean; pairing?: Record<string, string | null>; quality?: Quality; clean?: boolean }>().catch(() => null);
+  if (!b || typeof b !== "object") throw new BadRequest("invalid body");
+  const name = String(b.name ?? g.name).trim().slice(0, 120) || g.name;
+  const brand = b.brand === undefined ? g.brand : b.brand ? String(b.brand).trim().slice(0, 60) : null;
+  const category = b.category !== undefined ? (CATEGORIES.includes(b.category as any) ? b.category! : "other") : g.category;
+  const colors = Array.isArray(b.colors) ? b.colors.map((x) => String(x).toLowerCase().trim().slice(0, 30)).filter(Boolean).slice(0, 3) : arr(g.colors);
+  const description = b.description === undefined ? g.description : b.description ? String(b.description).slice(0, 300) : null;
+  const owned = typeof b.owned === "boolean" ? (b.owned ? 1 : 0) : g.owned;
+  const wasDraft = g.draft === 1;
+
+  // Pairing: at most one wardrobe piece per slot, and only slots this piece does not cover itself.
+  const covers = slotsOf(category);
+  const pairing: string[] = [];
+  if (!owned && b.pairing && typeof b.pairing === "object") {
+    const ids = Object.values(b.pairing).filter((v): v is string => typeof v === "string" && !!v);
+    if (ids.length) {
+      const rows = await c.env.DB.prepare(`SELECT id, category FROM garments WHERE owned = 1 AND draft = 0 AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; category: string | null }>();
+      const seen = new Set<Slot>();
+      for (const slot of PAIRABLE) {
+        const pid = b.pairing[slot];
+        const row = rows.results.find((r) => r.id === pid);
+        if (!row || covers.includes(slot) || seen.has(slot) || !slotsOf(row.category).includes(slot)) continue;
+        seen.add(slot); pairing.push(row.id);
+      }
+    }
+  }
+
+  let studioStatus = g.studio_status;
+  let studioKey = g.studio_key;
+  if (owned && wasDraft) {
+    if (b.clean === true) { studioKey = g.r2_key; studioStatus = "done"; }
+    else if (!studioKey) studioStatus = "pending";
+    else studioStatus = "done";
+  }
+  await c.env.DB.prepare("UPDATE garments SET name = ?, brand = ?, category = ?, color = ?, colors = ?, description = ?, owned = ?, draft = 0, covers = ?, studio_key = ?, studio_status = ? WHERE id = ?")
+    .bind(name, brand, category, colors.join(", ") || null, JSON.stringify(colors), description, owned, JSON.stringify(covers.length ? covers : arr(g.covers)), studioKey, studioStatus, id).run();
+
+  if (owned && wasDraft && studioStatus === "pending") await c.env.JOBS.send({ kind: "studio", id } satisfies Job);
+  if (!owned && wasDraft) {
+    const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "look");
+    const stmts = VARIANTS.map((v) => c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(randomId(9), id, v, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing)));
+    await c.env.DB.batch(stmts);
+    const ids = await c.env.DB.prepare("SELECT id FROM looks WHERE garment_id = ? AND status = 'pending'").bind(id).all<{ id: string }>();
+    await Promise.all(ids.results.map((l) => c.env.JOBS.send({ kind: "look", id: l.id } satisfies Job)));
+  }
+  return c.json(await garmentWithLooks(c.env, id), wasDraft ? 202 : 200);
 });
 
 app.get("/api/garments/:id", requireAuth, async (c) => {
@@ -330,27 +417,30 @@ app.get("/api/garments/:id", requireAuth, async (c) => {
 });
 
 app.patch("/api/garments/:id", requireAuth, async (c) => {
-  const b = await c.req.json<Partial<Pick<GarmentRow, "name" | "brand" | "category" | "color" | "notes">>>().catch(() => null);
+  const b = await c.req.json<Partial<Pick<GarmentRow, "name" | "brand" | "category" | "color" | "notes" | "description">> & { colors?: string[]; owned?: boolean }>().catch(() => null);
   if (!b || typeof b !== "object") throw new BadRequest("invalid body");
   const fields: string[] = [];
   const vals: unknown[] = [];
-  for (const k of ["name", "brand", "category", "color", "notes"] as const) {
+  for (const k of ["name", "brand", "category", "color", "notes", "description"] as const) {
     if (k in b) {
       const v = b[k];
       if (v !== null && v !== undefined && typeof v !== "string") throw new BadRequest(`${k} must be a string`);
-      fields.push(`${k} = ?`); vals.push(v ? String(v).slice(0, k === "notes" ? 2000 : 120) : null);
+      fields.push(`${k} = ?`); vals.push(v ? String(v).slice(0, k === "notes" ? 2000 : k === "description" ? 300 : 120) : null);
     }
   }
+  if (Array.isArray(b.colors)) { const cs = b.colors.map((x) => String(x).toLowerCase().trim().slice(0, 30)).filter(Boolean).slice(0, 3); fields.push("colors = ?", "color = ?"); vals.push(JSON.stringify(cs), cs.join(", ") || null); }
+  if (typeof b.owned === "boolean") { fields.push("owned = ?"); vals.push(b.owned ? 1 : 0); }
   if (fields.length) await c.env.DB.prepare(`UPDATE garments SET ${fields.join(", ")} WHERE id = ?`).bind(...vals, c.req.param("id")).run();
   return c.json(await garmentWithLooks(c.env, c.req.param("id")));
 });
 
 app.delete("/api/garments/:id", requireAuth, async (c) => {
   const id = c.req.param("id");
-  const g = await c.env.DB.prepare("SELECT r2_key FROM garments WHERE id = ?").bind(id).first<{ r2_key: string }>();
+  const g = await c.env.DB.prepare("SELECT r2_key, studio_key FROM garments WHERE id = ?").bind(id).first<{ r2_key: string; studio_key: string | null }>();
   if (!g) return c.json({ ok: true });
   const looks = await c.env.DB.prepare("SELECT r2_key FROM looks WHERE garment_id = ? AND r2_key IS NOT NULL").bind(id).all<{ r2_key: string }>();
-  await c.env.IMAGES.delete([...imageKeys(g.r2_key), ...looks.results.flatMap((l) => imageKeys(l.r2_key))]);
+  const studio = g.studio_key && g.studio_key !== g.r2_key ? imageKeys(g.studio_key) : [];
+  await c.env.IMAGES.delete([...imageKeys(g.r2_key), ...studio, ...looks.results.flatMap((l) => imageKeys(l.r2_key))]);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM looks WHERE garment_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM garments WHERE id = ?").bind(id),
@@ -358,20 +448,21 @@ app.delete("/api/garments/:id", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
-// ---------- looks (one generation per request; the client fans out) ----------
+// ---------- looks (an extra variant for an existing piece) ----------
 
 app.post("/api/garments/:id/looks", requireAuth, async (c) => {
   const gid = c.req.param("id");
-  const g = await c.env.DB.prepare("SELECT id FROM garments WHERE id = ?").bind(gid).first();
+  const g = await c.env.DB.prepare("SELECT id FROM garments WHERE id = ? AND draft = 0").bind(gid).first();
   if (!g) return c.json({ error: "not found" }, 404);
-  const b = await c.req.json<{ variant?: Variant; quality?: Quality }>().catch(() => ({} as { variant?: Variant; quality?: Quality }));
+  const b = await c.req.json<{ variant?: Variant; quality?: Quality; pairing?: string[] }>().catch(() => ({} as { variant?: Variant; quality?: Quality; pairing?: string[] }));
   const variant: Variant = VARIANTS.includes(b.variant as Variant) ? (b.variant as Variant) : "white";
   const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "look");
+  const pairing = Array.isArray(b.pairing) ? b.pairing.filter((x) => typeof x === "string").slice(0, 4) : [];
   const id = randomId(9);
-  await c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at) VALUES (?, ?, ?, 'front', ?, 'pending', ?)").bind(id, gid, variant, `${IMAGE_MODEL}:${quality}`, now()).run();
+  await c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(id, gid, variant, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing)).run();
   await c.env.JOBS.send({ kind: "look", id } satisfies Job);
   const look = await c.env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<LookRow>();
-  return c.json(look, 202);
+  return c.json(lookOut(look!), 202);
 });
 
 app.delete("/api/looks/:id", requireAuth, async (c) => {
@@ -407,7 +498,7 @@ app.post("/api/hero", requireAuth, async (c) => {
   if (ids.length < 2) return c.json({ error: "pick 2 or 3 garments" }, 400);
   const style: HeroStyle = HERO_STYLES.includes(b.style as HeroStyle) ? (b.style as HeroStyle) : "nyc";
   const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "hero");
-  const rows = await c.env.DB.prepare(`SELECT id FROM garments WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string }>();
+  const rows = await c.env.DB.prepare(`SELECT id FROM garments WHERE draft = 0 AND id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string }>();
   if (rows.results.length !== ids.length) return c.json({ error: "garment not found" }, 404);
   const id = randomId(6);
   await c.env.DB.prepare("INSERT INTO heroes (id, garment_ids, style, model, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)").bind(id, JSON.stringify(ids), style, `${IMAGE_MODEL}:${quality}`, now()).run();

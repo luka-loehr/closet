@@ -5,15 +5,58 @@
 export type Variant = "white" | "dark" | "nature";
 export const VARIANTS: Variant[] = ["white", "dark", "nature"];
 
+export const CATEGORIES = ["jacket", "hoodie", "sweater", "tee", "shirt", "pants", "shorts", "set", "dress", "shoes", "accessory", "other"] as const;
+export type Category = (typeof CATEGORIES)[number];
+
+/** Body slots a piece can cover; a complete fit is top + bottom + shoes. */
+export const SLOTS = ["top", "bottom", "shoes", "outerwear", "accessory"] as const;
+export type Slot = (typeof SLOTS)[number];
+export const PAIRABLE: Slot[] = ["top", "bottom", "shoes", "outerwear"];
+
+export function slotsOf(category: string | null | undefined): Slot[] {
+  switch (category) {
+    case "jacket": return ["outerwear"];
+    case "hoodie": case "sweater": case "tee": case "shirt": return ["top"];
+    case "pants": case "shorts": return ["bottom"];
+    case "set": return ["top", "bottom"];
+    case "dress": return ["top", "bottom"];
+    case "shoes": return ["shoes"];
+    case "accessory": return ["accessory"];
+    default: return [];
+  }
+}
+
 const LOOK_ENV: Record<Variant, string> = {
   white: "Keep the white studio background exactly as it is.",
   dark: "Change the background to a seamless dark charcoal photo studio with a soft rim light behind him and a soft floor shadow; relight him to match.",
   nature: "Change the background to a bright white photo studio decorated with potted olive trees, monstera plants, tall grasses and sandstone rocks around him; keep the lighting soft and bright.",
 };
 
-/** Single look: image 1 = base photo, image 2 = garment. */
-export function buildLookPrompt(variant: Variant): string {
-  return `The first image is a photo of a person, the second image shows a garment. Edit the first image: dress the person in the garment from the second image, reproduced exactly (color, fabric, logos, cut). If the garment image shows a full outfit (top and trousers), replace both his t-shirt and his jeans; if it shows only a top, replace only his t-shirt and keep his jeans; if it shows only trousers, replace only his jeans; if it shows shoes, replace only his shoes. Keep his face, hair, skin, body proportions, pose, hands and (unless replaced) shoes exactly as in the first image, and keep the framing identical. ${LOOK_ENV[variant] ?? LOOK_ENV.white} Photorealistic e-commerce quality, no text.`;
+export type Paired = { slot: Slot; name: string };
+
+const SLOT_PHRASE: Record<Slot, (n: number) => string> = {
+  shoes: (n) => `Image ${n} shows shoes: replace his shoes with exactly these shoes.`,
+  bottom: (n) => `Image ${n} shows trousers: replace his jeans with exactly these trousers.`,
+  top: (n) => `Image ${n} shows a top: replace his t-shirt with exactly this top.`,
+  outerwear: (n) => `Image ${n} shows a jacket: put exactly this jacket on over his top, worn open.`,
+  accessory: (n) => `Image ${n} shows an accessory: add exactly this accessory.`,
+};
+
+/** Single look: image 1 = base photo, image 2 = the garment, images 3.. = pieces from the wardrobe it is paired with. */
+export function buildLookPrompt(variant: Variant, paired: Paired[] = []): string {
+  const pairs = paired.map((p, i) => `${SLOT_PHRASE[p.slot](i + 3)} (${p.name})`).join(" ");
+  const kept = paired.length ? "everything not replaced by one of the images" : "his shoes (unless replaced)";
+  return `The first image is a photo of a person, the second image shows a garment. Edit the first image: dress the person in the garment from the second image, reproduced exactly (color, fabric, logos, cut). If the garment image shows a full outfit (top and trousers), replace both his t-shirt and his jeans; if it shows only a top, replace only his t-shirt and keep his jeans; if it shows only trousers, replace only his jeans; if it shows shoes, replace only his shoes. ${pairs ? pairs + " Each piece must be reproduced exactly as shown (color, materials, logos, shape). " : ""}Keep his face, hair, skin, body proportions, pose, hands and ${kept} exactly as in the first image, and keep the framing identical. ${LOOK_ENV[variant] ?? LOOK_ENV.white} Photorealistic e-commerce quality, no text.`;
+}
+
+/** Wardrobe product shot: image 1 = the uploaded piece (worn, on a hanger, or on a busy background). */
+export function buildStudioPrompt(category: string | null, name: string): string {
+  const how = category === "shoes"
+    ? "a single shoe photographed from the side, toe pointing left, resting on the floor"
+    : category === "pants" || category === "shorts"
+      ? "laid out flat and neatly, front view"
+      : "floating as if worn by an invisible mannequin (ghost mannequin), front view, sleeves relaxed";
+  return `Create a clean e-commerce product photo of only the garment shown in the image (${name}): ${how}, centered, on a seamless plain white studio background with soft even light and a faint soft shadow. Reproduce the piece exactly (color, fabric texture, logos, stitching, proportions). Remove any person, hanger, mannequin, other clothing and background. No text, no watermark.`;
 }
 
 // Campaign covers: the same person three times in one frame, on location.
@@ -37,4 +80,5 @@ export function buildHeroPrompt(style: HeroStyle, n: number): string {
   return `The first image is a photo of a person. The other ${n} images are garments. Create a photorealistic fashion campaign photo showing this exact person ${who}, with exactly his face, hair, skin and body from the first image. ${wears}, each reproduced exactly (colors, fabric, logos, cut); a garment that is only a top is worn with the dark jeans and white sneakers from the first image. Calm confident expressions looking into the camera. ${HERO_SCENES[style] ?? HERO_SCENES.studio} Full bodies head to toe, shoes visible. Wide landscape composition, photorealistic like a real fashion campaign photo, natural skin texture, real location, no text, no watermark.`;
 }
 
-export const NAME_PROMPT = `You are cataloguing a fashion item for an online store. Look at the garment image and answer with JSON: name (short product name in Title Case, max 6 words, like a webshop listing, e.g. "Navy Track Jacket & Pants Set"), brand (brand name if visible, else null), category (one of: jacket, hoodie, sweater, tee, shirt, pants, shorts, set, dress, shoes, accessory, other), color (main color(s), 1-3 words).`;
+/** Fallback cataloguing prompt (OpenAI text model) when the Gemini pass is unavailable. */
+export const NAME_PROMPT = `You are cataloguing a fashion item for an online store. Look at the garment image and answer with JSON: name (short product name in Title Case, max 6 words, like a webshop listing, e.g. "Navy Track Jacket & Pants Set"), brand (brand name if visible, else null), category (one of: ${CATEGORIES.join(", ")}), color (main color(s), 1-3 words).`;

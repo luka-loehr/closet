@@ -1,5 +1,6 @@
 # Copy to .dev.vars for `npm run dev`. Never commit .dev.vars.
 OPENAI_API_KEY=
 DAIRO_API_KEY=
+GEMINI_API_KEY=
 RP_ID=localhost
 ORIGIN=http://localhost:8787
