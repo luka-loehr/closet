@@ -8,6 +8,27 @@ export const FULL_WIDTH = 2048;
 
 type Stored = { key: string; thumb_key: string | null; mime: string };
 
+/**
+ * The image type, read from the bytes. Only raster formats are accepted, and never on the client's or a remote
+ * server's word: an SVG or HTML file stored under /img would run script on this origin.
+ */
+export function sniffImage(bytes: ArrayBuffer): string | null {
+  const b = new Uint8Array(bytes.slice(0, 16));
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.subarray(from, to));
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b[0] === 0x89 && ascii(1, 4) === "PNG") return "image/png";
+  if (ascii(0, 4) === "GIF8") return "image/gif";
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+  if (ascii(4, 8) === "ftyp") {
+    const brand = ascii(8, 12);
+    if (brand === "avif" || brand === "avis") return "image/avif";
+    if (["heic", "heix", "mif1", "msf1", "hevc"].includes(brand)) return "image/heic";
+  }
+  return null;
+}
+
+export const RASTER_TYPE = /^image\/(jpeg|png|webp|gif|avif|heic)$/;
+
 async function toWebp(env: Env, bytes: ArrayBuffer, width: number, quality: number): Promise<ArrayBuffer | null> {
   if (!env.IMG) return null;
   try {

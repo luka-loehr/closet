@@ -4,8 +4,10 @@ export type ImageInput = { mime: string; bytes: ArrayBuffer; name?: string };
 export type Quality = "low" | "medium" | "high";
 export type EditResult = { bytes: Uint8Array; mime: string; ms: number; usage: unknown };
 
-export const IMAGE_MODEL = "gpt-image-2";
-export const TEXT_MODEL = "gpt-5-mini";
+/** Edits of the base photo (looks, covers, phone covers): Sunburst holds identity and follows edit instructions most precisely. */
+export const EDIT_MODEL = "gpt-image-2.5-sunburst";
+/** Studio shots of owned pieces (no person to preserve): Flare, faster at the same price. */
+export const PRODUCT_MODEL = "gpt-image-2.5-flare";export const TEXT_MODEL = "gpt-5-mini";
 
 function b64ToBytes(s: string): Uint8Array {
   const bin = atob(s);
@@ -22,9 +24,9 @@ function bytesToB64(buf: ArrayBuffer): string {
 }
 
 /** images/edits: the first image is the subject, the rest are garments. Returns PNG bytes. */
-export async function editImage(opts: { key: string; images: ImageInput[]; prompt: string; size: string; quality: Quality }): Promise<EditResult> {
+export async function editImage(opts: { key: string; images: ImageInput[]; prompt: string; size: string; quality: Quality; model?: string }): Promise<EditResult> {
   const fd = new FormData();
-  fd.append("model", IMAGE_MODEL);
+  fd.append("model", opts.model ?? EDIT_MODEL);
   fd.append("prompt", opts.prompt);
   fd.append("size", opts.size);
   fd.append("quality", opts.quality);

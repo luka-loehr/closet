@@ -1,4 +1,4 @@
-// Prompt library for closet.lukaloehr.com. Generator: OpenAI gpt-image-2 (images/edits).
+// Prompt library for closet.lukaloehr.com. Generator: OpenAI gpt-image-2.5 images/edits (Sunburst for edits of the person, Flare for studio shots).
 // Recipe (validated 2026-09-06): the approved base full-body photo is the only identity input; the model edits it.
 // Nothing about the face is described in words: the base photo carries the identity.
 
@@ -88,6 +88,12 @@ export function buildHeroPrompt(style: HeroStyle, n: number): string {
   const who = n === 2 ? "twice in one frame, as identical twins" : "three times in one frame, as identical triplets";
   const wears = n === 2 ? "The left one wears garment 1, the right one garment 2" : "The left one wears garment 1, the middle one garment 2, the right one garment 3";
   return `The first image is a photo of a person. The other ${n} images are garments. Create a photorealistic fashion campaign photo showing this exact person ${who}, with exactly his face, hair, skin and body from the first image. ${wears}, each reproduced exactly (colors, fabric, logos, cut); a garment that is only a top is worn with the dark jeans and white sneakers from the first image. Calm confident expressions looking into the camera. ${HERO_SCENES[style] ?? HERO_SCENES.studio} Full bodies head to toe, shoes visible. Wide landscape composition, photorealistic like a real fashion campaign photo, natural skin texture, real location, no text, no watermark.`;
+}
+
+/** Phone cover: image 1 = base photo, image 2 = the finished landscape cover, images 3.. = its garments. Same shoot, recomposed for a tall 9:16 screen. */
+export function buildHeroPortraitPrompt(style: HeroStyle, n: number): string {
+  const who = n === 2 ? "both figures" : "all three figures";
+  return `The first image is a photo of a person. The second image is a finished landscape fashion campaign photo of this exact person ${n === 2 ? "twice, as identical twins" : "three times, as identical triplets"}. The other ${n} images are the garments they wear, left to right. Create the vertical 9:16 version of the same campaign shot for a phone screen: the same location, light, colour grade and mood as the second image (${HERO_SCENES[style] ?? HERO_SCENES.studio}), recomposed as a tall portrait frame with ${who} full bodies head to toe, shoes visible, staggered in depth so they fit the narrow frame (one closer to the camera, the others further back), each wearing exactly the same garment as in the second image, reproduced exactly (colors, fabric, logos, cut). Faces, hair, skin and body exactly as in the first image. Keep the upper fifth of the frame calm (sky, wall or ceiling) and the lower quarter free of faces, because text is laid over it. Photorealistic like a real fashion campaign photo, natural skin texture, no text, no watermark.`;
 }
 
 /** Fallback cataloguing prompt (OpenAI text model) when the Gemini pass is unavailable. */

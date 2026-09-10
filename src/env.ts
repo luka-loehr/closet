@@ -1,4 +1,4 @@
-export type Job = { kind: "look"; id: string } | { kind: "hero"; id: string } | { kind: "studio"; id: string };
+export type Job = { kind: "look"; id: string } | { kind: "hero"; id: string } | { kind: "studio"; id: string } | { kind: "hero_portrait"; id: string };
 
 export type Env = {
   DB: D1Database;

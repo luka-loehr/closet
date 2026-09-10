@@ -1,8 +1,8 @@
 import type { Env, Job } from "./env";
-import { editImage, IMAGE_MODEL, type ImageInput, type Quality } from "./openai";
-import { storeImage } from "./images";
+import { editImage, PRODUCT_MODEL, type ImageInput, type Quality } from "./openai";
+import { imageKeys, storeImage } from "./images";
 import { BudgetError, reserve } from "./budget";
-import { buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioViews, type HeroStyle, type Paired, type Slot, type Variant } from "./prompts";
+import { buildHeroPortraitPrompt, buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioViews, type HeroStyle, type Paired, type Slot, type Variant } from "./prompts";
 
 // Generation runs here, on the queue consumer, so a closed tab cannot cancel it.
 // The HTTP layer only inserts a pending row and enqueues { kind, id }; the client polls.
@@ -13,6 +13,7 @@ import { buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioVie
 
 export const LOOK_SIZE = "1152x1536"; // 3:4, multiples of 16
 export const HERO_SIZE = "1920x1088"; // 16:9, multiples of 16
+export const HERO_PORTRAIT_SIZE = "1088x1920"; // 9:16 phone cover, multiples of 16
 export const STUDIO_SIZE = "1152x1536"; // wardrobe product shots, 3:4 like the cards
 
 type RefRow = { id: string; r2_key: string; label: string | null; active: number; sort: number; created_at: number };
@@ -102,7 +103,7 @@ async function runStudio(env: Env, id: string): Promise<void> {
     const views = studioViews(g.category);
     await reserveImages(env, views.length);
     const shots = await Promise.all(views.map(async (view) => {
-      const r = await editImage({ key: env.OPENAI_API_KEY, images: [src], prompt: buildStudioPrompt(g.category, g.name, view), size: STUDIO_SIZE, quality: "medium" });
+      const r = await editImage({ key: env.OPENAI_API_KEY, images: [src], prompt: buildStudioPrompt(g.category, g.name, view), size: STUDIO_SIZE, quality: "medium", model: PRODUCT_MODEL });
       return storeImage(env, view === "main" ? `studio/${id}` : `studio/${id}-${view}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true, fullWidth: 1152 });
     }));
     await env.DB.prepare("UPDATE garments SET studio_status = 'done', studio_key = ?, studio_alt_key = ? WHERE id = ?").bind(shots[0].key, shots[1]?.key ?? null, id).run();
@@ -134,6 +135,32 @@ async function runHero(env: Env, id: string): Promise<void> {
   }
 }
 
+/** Phone cover: the finished landscape cover recomposed as 9:16, with the base photo and garments for identity and fidelity. */
+async function runHeroPortrait(env: Env, id: string): Promise<void> {
+  const claim = await env.DB.prepare("UPDATE heroes SET portrait_started_at = ? WHERE id = ? AND portrait_status = 'pending' AND portrait_started_at IS NULL").bind(now(), id).run();
+  if (!claim.meta.changes) return;
+  const hero = await env.DB.prepare("SELECT * FROM heroes WHERE id = ?").bind(id).first<{ id: string; r2_key: string | null; garment_ids: string; style: string; model: string; portrait_key: string | null }>();
+  if (!hero) return;
+  try {
+    if (!hero.r2_key) throw new Error("the landscape cover is missing");
+    const ids: string[] = JSON.parse(hero.garment_ids);
+    if (ids.length < 2) throw new Error("only generated covers can get a phone version");
+    const rows = (await env.DB.prepare(`SELECT id, r2_key FROM garments WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; r2_key: string }>()).results;
+    const ordered = ids.map((gid) => rows.find((r) => r.id === gid)).filter(Boolean) as { id: string; r2_key: string }[];
+    if (ordered.length !== ids.length) throw new Error("a garment was deleted");
+    const base = await baseReference(env);
+    const [person, cover, ...garments] = await Promise.all([loadR2Image(env, base.r2_key), loadR2Image(env, hero.r2_key), ...ordered.map((g) => loadR2Image(env, g.r2_key))]);
+    await reserveImages(env, 1, true);
+    const r = await editImage({ key: env.OPENAI_API_KEY, images: [person, cover, ...garments], prompt: buildHeroPortraitPrompt(hero.style as HeroStyle, ordered.length), size: HERO_PORTRAIT_SIZE, quality: qualityOf(hero.model) });
+    // A new key per render: /img is served immutable, so a re-render must never reuse the previous URL.
+    const stored = await storeImage(env, `hero/${id}-portrait-${now()}`, r.bytes.buffer as ArrayBuffer, r.mime, { fullWidth: 1088, quality: 84 });
+    await env.DB.prepare("UPDATE heroes SET portrait_status = 'done', portrait_key = ?, portrait_error = NULL WHERE id = ?").bind(stored.key, id).run();
+    if (hero.portrait_key && hero.portrait_key !== stored.key) await env.IMAGES.delete(imageKeys(hero.portrait_key));
+  } catch (e: any) {
+    await env.DB.prepare("UPDATE heroes SET portrait_status = 'error', portrait_error = ? WHERE id = ?").bind(String(e?.message ?? e).slice(0, 500), id).run();
+  }
+}
+
 export async function handleQueue(batch: MessageBatch<Job>, env: Env): Promise<void> {
   for (const msg of batch.messages) {
     const job = msg.body;
@@ -142,6 +169,7 @@ export async function handleQueue(batch: MessageBatch<Job>, env: Env): Promise<v
       if (job.kind === "look") await runLook(env, job.id);
       else if (job.kind === "hero") await runHero(env, job.id);
       else if (job.kind === "studio") await runStudio(env, job.id);
+      else if (job.kind === "hero_portrait") await runHeroPortrait(env, job.id);
     } catch (e) {
       console.error("job failed", job, (e as Error).message);
     }
@@ -150,5 +178,3 @@ export async function handleQueue(batch: MessageBatch<Job>, env: Env): Promise<v
     msg.ack();
   }
 }
-
-export { IMAGE_MODEL };

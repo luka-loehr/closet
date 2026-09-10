@@ -58,6 +58,7 @@ img { display: block; max-width: 100%; }
 .hero { position: relative; height: 100svh; min-height: 560px; background: #d9d9d9; overflow: hidden; isolation: isolate; }
 .hero .slides, .hero .slide { position: absolute; inset: 0; }
 .hero .slide { opacity: 0; transition: opacity 1.4s var(--ease); will-change: opacity; }
+.hero .slide picture { position: absolute; inset: 0; }
 .hero .slide img { width: 100%; height: 100%; object-fit: cover; object-position: center 22%; }
 .hero .slide.on { opacity: 1; z-index: 1; }
 .hero .shade { position: absolute; inset: 0; z-index: 2; background: linear-gradient(to top, rgba(0,0,0,.3) 0%, rgba(0,0,0,0) 45%), linear-gradient(to bottom, rgba(0,0,0,.2) 0%, rgba(0,0,0,0) 22%); pointer-events: none; }
@@ -81,7 +82,6 @@ img { display: block; max-width: 100%; }
 .hero .scroll-hint { position: absolute; left: var(--gutter); bottom: 28px; z-index: 4; color: #fff; text-transform: uppercase; letter-spacing: .3em; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 10px; opacity: 0; animation: fade-up 1s var(--ease-out) forwards; animation-delay: 1.3s; }
 .hero .scroll-hint i { display: block; width: 1px; height: 28px; background: rgba(255,255,255,.7); animation: line-drop 1.8s var(--ease) infinite; transform-origin: top; }
 @keyframes line-drop { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 51% { transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
-.ticker { border-bottom: 1px solid var(--line); text-align: center; padding: 9px; font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: #444; }
 
 /* ---------- layout ---------- */
 .page { padding: 32px var(--gutter) 96px; }
@@ -170,7 +170,6 @@ textarea.input { height: auto; padding: 10px 14px; resize: vertical; min-height:
 .drop h3 { margin: 0 0 8px; font-family: var(--display); font-weight: 800; font-size: 30px; letter-spacing: -.03em; }
 .drop p { margin: 0; color: var(--muted); max-width: 440px; }
 .drop kbd { font-family: var(--font); background: #eee; border-radius: 3px; padding: 1px 6px; font-size: 12px; }
-.urlrow { display: flex; gap: 8px; margin-top: 20px; max-width: 640px; }
 .addwrap { display: grid; grid-template-columns: 280px 1fr; gap: 32px; align-items: start; animation: page-in .6s var(--ease-out) both; }
 @media (max-width: 900px) { .addwrap { grid-template-columns: 1fr; } }
 .source-tile { aspect-ratio: 1; background: var(--tile); border-radius: 2px; display: grid; place-items: center; overflow: hidden; }

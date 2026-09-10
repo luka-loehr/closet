@@ -6,3 +6,6 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   Cross-Origin-Opener-Policy: same-origin
+# Passkeys in the iOS app (webcredentials associated domain).
+/.well-known/apple-app-site-association
+  Content-Type: application/json

@@ -9,7 +9,7 @@ type Garment = {
   covers?: Record<string, Look>; looks?: Look[]; paired?: Garment[]; pending?: number; errors?: number; slots?: string[];
   analysis?: { model: string | null; fallback?: string | null; ms: number; found_brand: boolean; found_name: boolean; clean_product_shot: boolean };
 };
-type Hero = { id: string; r2_key: string | null; garment_ids: string[]; style: string; model: string; status: string; error: string | null; created_at: number };
+type Hero = { id: string; r2_key: string | null; garment_ids: string[]; style: string; model: string; status: string; error: string | null; created_at: number; portrait_key?: string | null; portrait_status?: string | null };
 type Budget = { hour: number; day: number; limits: { hour: number; day: number } };
 type Settings = { model: string; look_quality: string; hero_quality: string; qualities: string[]; variants: string[]; hero_styles: string[]; base_ref: string | null; heroes: Hero[]; analysis_model: string | null; categories: string[]; slots: string[]; budget?: { analysis: Budget; image: Budget; hero: Budget } };
 
@@ -378,13 +378,12 @@ async function viewHome() {
   setHeader("home", heroes.length > 0);
   await swap(`
     <section class="hero ${heroes.length ? "" : "no-slides"}">
-      ${heroes.length ? `<div class="slides">${heroes.map((h, i) => `<div class="slide ${i === 0 ? "on" : ""}"><img src="${img(h.r2_key)}" alt="" ${i > 1 ? 'loading="lazy"' : ""} /></div>`).join("")}</div><div class="shade"></div>
+      ${heroes.length ? `<div class="slides">${heroes.map((h, i) => `<div class="slide ${i === 0 ? "on" : ""}"><picture>${h.portrait_key ? `<source media="(max-aspect-ratio: 3/4)" srcset="${img(h.portrait_key)}" />` : ""}<img src="${img(h.r2_key)}" alt="" ${i > 1 ? 'loading="lazy"' : ""} /></picture></div>`).join("")}</div><div class="shade"></div>
         <div class="overlay"><div class="wordmark"><span>closet</span></div><div class="sub">Luka · FW26 · ${garments.length} pieces</div></div>
         <div class="scroll-hint"><i></i>Scroll</div>
         <div class="dots">${heroes.map((_, i) => `<button class="${i === 0 ? "on" : ""}" aria-label="Slide ${i + 1}"></button>`).join("")}</div>`
       : `<div class="empty"><div><div class="wordmark">closet</div><p>${garments.length ? "No campaign cover yet. Pick two or three finished looks in settings and generate one." : "No campaign image yet. Add a few garments, then generate one in settings."}</p><a class="btn" href="${garments.length ? "/settings" : "/add"}">${garments.length ? "Generate campaign" : "Add the first piece"}</a></div></div>`}
     </section>
-    <div class="ticker">Every fit on this site is generated on you · nothing here is for sale</div>
     <main class="page">
       <div class="section-head"><h2>New in</h2><a href="/looks">View all</a></div>
       ${garments.length ? `<div class="grid">${garments.slice(0, 8).map(card).join("")}</div>` : `<div class="empty-state"><h3>Nothing here yet</h3><p>Paste a product photo anywhere on this page to try it on.</p><a class="btn" href="/add">Add the first piece</a></div>`}
@@ -529,8 +528,7 @@ async function viewAdd() {
     </div>
     <div id="add-stage">
       <div class="drop" id="drop" tabindex="0" role="button" aria-label="Pick a product photo">
-        <div><h3>Drop a product photo</h3><p>Paste with <kbd>⌘V</kbd> anywhere, drag an image here, or click to pick a file. A direct image URL works too.</p>
-        <div class="urlrow" id="urlrow"><input class="input" id="url" type="url" placeholder="https://…/jacket.jpg" /><button class="btn" id="url-go">Add</button></div></div>
+        <div><h3>Drop a product photo</h3><p>Paste with <kbd>⌘V</kbd> anywhere, drag an image here, or click to pick a file.</p></div>
       </div>
       <input type="file" id="file" accept="image/*" hidden />
     </div></main>`);
@@ -543,7 +541,6 @@ async function viewAdd() {
   }));
   const drop = $("#drop")!;
   const file = $<HTMLInputElement>("#file")!;
-  $("#urlrow")!.addEventListener("click", (e) => e.stopPropagation());
   drop.addEventListener("click", () => file.click());
   drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); file.click(); } });
   file.addEventListener("change", () => file.files?.[0] && startAdd({ file: file.files[0] }));
@@ -557,9 +554,6 @@ async function viewAdd() {
     if (url && /^https?:\/\//.test(url)) startAdd({ url: url.trim() });
     else toast("Drop an image file or an image link.", true);
   });
-  const goUrl = () => { const u = $<HTMLInputElement>("#url")!.value.trim(); if (!u) return; if (!/^https?:\/\/\S+$/.test(u)) return toast("That does not look like a link.", true); startAdd({ url: u }); };
-  $("#url-go")!.addEventListener("click", goUrl);
-  $<HTMLInputElement>("#url")!.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); goUrl(); } });
   if (pendingImage) { const p = pendingImage; pendingImage = null; startAdd(p); }
 }
 
@@ -1040,7 +1034,7 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("paste", (e) => {
   if (!me.authenticated) return;
   const t = e.target as HTMLElement;
-  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) && !(t.id === "url")) return;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) && true) return;
   const items = Array.from(e.clipboardData?.items ?? []);
   const it = items.find((i) => i.type.startsWith("image/"));
   if (it) { const f = it.getAsFile(); if (f) { e.preventDefault(); startAdd({ file: f }); } return; }

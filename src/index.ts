@@ -15,8 +15,8 @@ import {
   startEmailCode,
   verifyEmailCode,
 } from "./auth";
-import { describeGarment, IMAGE_MODEL, TEXT_MODEL, type Quality } from "./openai";
-import { imageKeys, storeImage } from "./images";
+import { describeGarment, EDIT_MODEL, PRODUCT_MODEL, TEXT_MODEL, type Quality } from "./openai";
+import { imageKeys, RASTER_TYPE, sniffImage, storeImage } from "./images";
 import { CATEGORIES, HERO_STYLES, PAIRABLE, VARIANTS, slotsOf, type HeroStyle, type Slot, type Variant } from "./prompts";
 import { analyzeGarment, DEFAULT_GEMINI_MODEL, type Analysis } from "./gemini";
 import { CATEGORIES_BY_FAMILY, detailFills, familyOf, labelOf, missingSlots } from "./taxonomy";
@@ -68,7 +68,7 @@ const idGuard = async (c: Context<{ Bindings: Env }>, next: () => Promise<void>)
   if (typeof id === "string" && !ID_RE.test(id)) return c.json({ error: "not found" }, 404);
   await next();
 };
-for (const p of ["/api/garments/:id", "/api/garments/:id/*", "/api/refs/:id", "/api/looks/:id", "/api/hero/:id", "/api/auth/passkeys/:id"]) app.use(p, idGuard);
+for (const p of ["/api/garments/:id", "/api/garments/:id/*", "/api/refs/:id", "/api/looks/:id", "/api/hero/:id", "/api/hero/:id/*", "/api/auth/passkeys/:id"]) app.use(p, idGuard);
 
 // ---------- helpers ----------
 
@@ -79,7 +79,15 @@ async function authLimit(c: Context<{ Bindings: Env }>): Promise<void> {
   await reserve(c.env, "auth", 1, clientIp(c));
 }
 
+/** An uploaded image, typed by its bytes (see sniffImage). */
 async function readImageFromRequest(c: Context<{ Bindings: Env }>): Promise<{ mime: string; bytes: ArrayBuffer; sourceUrl: string | null }> {
+  const r = await readUpload(c);
+  const mime = sniffImage(r.bytes);
+  if (!mime) throw new BadRequest("unsupported image format (use JPEG, PNG, WebP, GIF, HEIC or AVIF)");
+  return { ...r, mime };
+}
+
+async function readUpload(c: Context<{ Bindings: Env }>): Promise<{ mime: string; bytes: ArrayBuffer; sourceUrl: string | null }> {
   const ct = c.req.header("content-type") ?? "";
   if (ct.includes("multipart/form-data")) {
     const form = await c.req.formData();
@@ -212,7 +220,7 @@ type LookRow = {
 const arr = (v: string | null): string[] => { try { const a = v ? JSON.parse(v) : []; return Array.isArray(a) ? a : []; } catch { return []; } };
 const garmentOut = (g: GarmentRow) => ({ ...g, colors: arr(g.colors), covers: arr(g.covers), missing: arr(g.missing), family: familyOf(g.category), category_label: labelOf(g.category), detail_fill: detailFills(g.category) });
 const lookOut = (l: LookRow) => ({ ...l, pairing: arr(l.pairing), prompt: undefined });
-type HeroRow = { id: string; r2_key: string | null; garment_ids: string; style: string; model: string; status: string; error: string | null; duration_ms: number | null; created_at: number };
+type HeroRow = { id: string; r2_key: string | null; garment_ids: string; style: string; model: string; status: string; error: string | null; duration_ms: number | null; created_at: number; portrait_key: string | null; portrait_status: string | null; portrait_error: string | null };
 const heroOut = (h: HeroRow) => ({ ...h, garment_ids: JSON.parse(h.garment_ids) as string[] });
 
 // ---------- auth ----------
@@ -236,6 +244,7 @@ app.post("/api/auth/email/verify", async (c) => {
   const { email, code } = await c.req.json<{ email: string; code: string }>().catch(() => ({ email: "", code: "" }));
   if (!email || !code || typeof email !== "string" || typeof code !== "string") return c.json({ error: "email and code required" }, 400);
   await authLimit(c);
+  await reserve(c.env, "verify", 1);
   const ok = await verifyEmailCode(c, email, code);
   if (!ok) return c.json({ error: "that code is wrong or has expired" }, 401);
   await createSession(c);
@@ -297,6 +306,10 @@ app.get("/img/*", async (c) => {
   if (!obj) return c.text("not found", 404);
   const h = new Headers();
   obj.writeHttpMetadata(h);
+  // Only raster types are ever served as images, inside a sandbox: even a stored non-image cannot run script here.
+  const type = obj.httpMetadata?.contentType ?? "";
+  h.set("content-type", RASTER_TYPE.test(type) ? type : "application/octet-stream");
+  h.set("content-security-policy", "default-src 'none'; sandbox");
   h.set("etag", obj.httpEtag);
   h.set("cache-control", "private, max-age=31536000, immutable");
   h.set("x-content-type-options", "nosniff");
@@ -308,7 +321,7 @@ app.get("/img/*", async (c) => {
 app.get("/api/settings", requireAuth, async (c) => {
   const [analysis, image, hero] = await Promise.all([spent(c.env, "analysis"), spent(c.env, "image"), spent(c.env, "hero")]);
   return c.json({
-    model: IMAGE_MODEL,
+    model: `${EDIT_MODEL} · ${PRODUCT_MODEL}`,
     look_quality: await qualityFor(c.env, "look"),
     hero_quality: await qualityFor(c.env, "hero"),
     qualities: QUALITIES,
@@ -505,7 +518,7 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
   if (committed && !owned) {
     const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "look");
     const lookIds = VARIANTS.map(() => randomId(9));
-    await c.env.DB.batch(VARIANTS.map((v, i) => c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(lookIds[i], id, v, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing))));
+    await c.env.DB.batch(VARIANTS.map((v, i) => c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(lookIds[i], id, v, `${EDIT_MODEL}:${quality}`, now(), JSON.stringify(pairing))));
     await Promise.all(lookIds.map((lid) => c.env.JOBS.send({ kind: "look", id: lid } satisfies Job)));
   }
   return c.json(await garmentWithLooks(c.env, id), committed ? 202 : 200);
@@ -600,7 +613,10 @@ app.post("/api/garments/:id/looks", requireAuth, async (c) => {
   const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "look");
   const pairing = Array.isArray(b.pairing) ? b.pairing.filter((x): x is string => typeof x === "string" && ID_RE.test(x)).slice(0, 4) : [];
   const id = randomId(9);
-  await c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(id, gid, variant, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing)).run();
+  // The check above gives the message; this conditional insert is the guarantee when two requests race.
+  const ins = await c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) SELECT ?, ?, ?, 'front', ?, 'pending', ?, ? WHERE NOT EXISTS (SELECT 1 FROM looks WHERE garment_id = ? AND variant = ? AND status IN ('done', 'pending'))")
+    .bind(id, gid, variant, `${EDIT_MODEL}:${quality}`, now(), JSON.stringify(pairing), gid, variant).run();
+  if (!ins.meta.changes) throw new Conflict(`the ${variant} look already exists or is being generated`);
   await c.env.JOBS.send({ kind: "look", id } satisfies Job);
   const look = await c.env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<LookRow>();
   return c.json(lookOut(look!), 202);
@@ -647,7 +663,9 @@ app.post("/api/hero", requireAuth, async (c) => {
   await precheck(c.env, "hero", 1);
   await precheck(c.env, "image", 1);
   const id = randomId(6);
-  await c.env.DB.prepare("INSERT INTO heroes (id, garment_ids, style, model, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)").bind(id, JSON.stringify(ids), style, `${IMAGE_MODEL}:${quality}`, now()).run();
+  const ins = await c.env.DB.prepare("INSERT INTO heroes (id, garment_ids, style, model, status, created_at) SELECT ?, ?, ?, ?, 'pending', ? WHERE NOT EXISTS (SELECT 1 FROM heroes WHERE status = 'pending')")
+    .bind(id, JSON.stringify(ids), style, `${EDIT_MODEL}:${quality}`, now()).run();
+  if (!ins.meta.changes) throw new Conflict("a cover is already being generated, wait for it to finish");
   await c.env.JOBS.send({ kind: "hero", id } satisfies Job);
   const h = await c.env.DB.prepare("SELECT * FROM heroes WHERE id = ?").bind(id).first<HeroRow>();
   return c.json(heroOut(h!), 202);
@@ -662,15 +680,37 @@ app.post("/api/heroes/upload", requireAuth, async (c) => {
   const styleRaw = String(form.get("style") ?? "studio");
   const style: HeroStyle = HERO_STYLES.includes(styleRaw as HeroStyle) ? (styleRaw as HeroStyle) : "studio";
   const id = randomId(6);
-  const stored = await storeImage(c.env, `hero/${id}`, await f.arrayBuffer(), f.type.startsWith("image/") ? f.type : "image/png", { fullWidth: 1920, quality: 84 });
+  const bytes = await f.arrayBuffer();
+  const mime = sniffImage(bytes);
+  if (!mime) throw new BadRequest("unsupported image format (use JPEG, PNG, WebP, GIF, HEIC or AVIF)");
+  const stored = await storeImage(c.env, `hero/${id}`, bytes, mime, { fullWidth: 1920, quality: 84 });
   await c.env.DB.prepare("INSERT INTO heroes (id, r2_key, garment_ids, style, model, status, duration_ms, created_at) VALUES (?, ?, '[]', ?, 'upload', 'done', 0, ?)").bind(id, stored.key, style, now()).run();
   const h = await c.env.DB.prepare("SELECT * FROM heroes WHERE id = ?").bind(id).first<HeroRow>();
   return c.json(heroOut(h!));
 });
 
+/** Queue the phone (9:16) version of one finished generated cover: one image call at the cover's quality, counted against the cover cap. */
+app.post("/api/hero/:id/portrait", requireAuth, async (c) => {
+  const id = c.req.param("id");
+  const h = await c.env.DB.prepare("SELECT id, status, r2_key, model, garment_ids, portrait_status FROM heroes WHERE id = ?").bind(id).first<{ id: string; status: string; r2_key: string | null; model: string; garment_ids: string; portrait_status: string | null }>();
+  if (!h) return c.json({ error: "not found" }, 404);
+  if (h.status !== "done" || !h.r2_key) throw new BadRequest("the cover is not finished");
+  // An uploaded cover has no garments to recompose it from.
+  if (h.model === "upload" || arr(h.garment_ids).length < 2) throw new BadRequest("only generated covers can get a phone version");
+  if (h.portrait_status === "pending") throw new Conflict("the phone cover is already being generated");
+  await precheck(c.env, "hero", 1);
+  await precheck(c.env, "image", 1);
+  const flip = await c.env.DB.prepare("UPDATE heroes SET portrait_status = 'pending', portrait_started_at = NULL, portrait_error = NULL, portrait_queued_at = ? WHERE id = ? AND (portrait_status IS NULL OR portrait_status != 'pending')").bind(now(), id).run();
+  if (!flip.meta.changes) throw new Conflict("the phone cover is already being generated");
+  await c.env.JOBS.send({ kind: "hero_portrait", id } satisfies Job);
+  const row = await c.env.DB.prepare("SELECT * FROM heroes WHERE id = ?").bind(id).first<HeroRow>();
+  return c.json(heroOut(row!), 202);
+});
+
 app.delete("/api/hero/:id", requireAuth, async (c) => {
-  const h = await c.env.DB.prepare("SELECT r2_key FROM heroes WHERE id = ?").bind(c.req.param("id")).first<{ r2_key: string | null }>();
+  const h = await c.env.DB.prepare("SELECT r2_key, portrait_key FROM heroes WHERE id = ?").bind(c.req.param("id")).first<{ r2_key: string | null; portrait_key: string | null }>();
   if (h?.r2_key) await c.env.IMAGES.delete(imageKeys(h.r2_key));
+  if (h?.portrait_key) await c.env.IMAGES.delete(imageKeys(h.portrait_key));
   await c.env.DB.prepare("DELETE FROM heroes WHERE id = ?").bind(c.req.param("id")).run();
   return c.json({ ok: true });
 });

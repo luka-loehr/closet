@@ -1,25 +1,27 @@
 import type { Env } from "./env";
 import { imageKeys } from "./images";
 
-// Cost safety. Everything that spends money (an analysis call, a gpt-image-2 call, a cover, and login traffic
+// Cost safety. Everything that spends money (an analysis call, a gpt-image-2.5 call, a cover, and login traffic
 // per address) is counted in the `spend` table per UTC hour and per UTC day, and refused with a clear message once
 // a cap is reached. The HTTP layer pre-checks before it enqueues; the queue consumer reserves right before the
 // OpenAI call, so the consumer is the real guard even for messages that were already in flight.
 //
 // Caps can be tuned without a deploy: a settings row `limit_<kind>_<hour|day>` overrides the default.
 
-export type SpendKind = "analysis" | "image" | "hero" | "auth";
+export type SpendKind = "analysis" | "image" | "hero" | "auth" | "mail" | "verify";
 
 export const DEFAULT_LIMITS: Record<SpendKind, { hour: number; day: number }> = {
   analysis: { hour: 20, day: 60 }, // Gemini or gpt-5-mini cataloguing passes
-  image: { hour: 24, day: 60 }, // every gpt-image-2 call: looks, studio views, covers
+  image: { hour: 24, day: 60 }, // every gpt-image-2.5 call: looks, studio views, covers, phone covers
   hero: { hour: 3, day: 6 }, // covers are high quality and ~4x the price of a look
   auth: { hour: 20, day: 100 }, // code requests and passkey challenges per client address
+  mail: { hour: 6, day: 20 }, // login-code e-mails in total, across all addresses
+  verify: { hour: 10, day: 30 }, // login-code verifications in total: bounds brute force even from many IPs
 };
 
 export class BudgetError extends Error {
   constructor(public kind: SpendKind, public window: "hour" | "day", public limit: number) {
-    super(kind === "auth" ? "too many attempts, try again later" : `${window === "hour" ? "hourly" : "daily"} ${kind === "image" ? "image" : kind} budget reached (${limit} per ${window})`);
+    super(kind === "auth" || kind === "mail" || kind === "verify" ? "too many attempts, try again later" : `${window === "hour" ? "hourly" : "daily"} ${kind === "image" ? "image" : kind} budget reached (${limit} per ${window})`);
   }
 }
 
@@ -109,6 +111,7 @@ export function interruptedStatements(env: Env, t = Math.floor(Date.now() / 1000
   return [
     env.DB.prepare("UPDATE looks SET status = 'error', error = 'generation interrupted' WHERE status = 'pending' AND ((started_at IS NOT NULL AND started_at < ?) OR (started_at IS NULL AND created_at < ?))").bind(t - 600, t - 1800),
     env.DB.prepare("UPDATE heroes SET status = 'error', error = 'generation interrupted' WHERE status = 'pending' AND ((started_at IS NOT NULL AND started_at < ?) OR (started_at IS NULL AND created_at < ?))").bind(t - 900, t - 1800),
+    env.DB.prepare("UPDATE heroes SET portrait_status = 'error', portrait_error = 'generation interrupted' WHERE portrait_status = 'pending' AND ((portrait_started_at IS NOT NULL AND portrait_started_at < ?) OR (portrait_started_at IS NULL AND portrait_queued_at < ?))").bind(t - 900, t - 1800),
     env.DB.prepare("UPDATE garments SET studio_status = 'error', notes = COALESCE(notes, '') || '\n[studio shot interrupted]' WHERE studio_status = 'pending' AND studio_started_at IS NOT NULL AND studio_started_at < ?").bind(t - 900),
   ];
 }

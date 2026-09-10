@@ -6,3 +6,8 @@ public/app.js
 # derived and personal data — production copies live in R2
 lab/out
 refs/
+
+# iOS app
+ios/build/
+ios/Closet.xcodeproj/xcuserdata/
+ios/Closet.xcodeproj/project.xcworkspace/xcuserdata/

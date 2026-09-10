@@ -8,6 +8,7 @@ import {
   type WebAuthnCredential,
 } from "@simplewebauthn/server";
 import type { Env } from "./env";
+import { reserve } from "./budget";
 
 const SESSION_COOKIE = "closet_session";
 const SESSION_TTL = 60 * 60 * 24 * 60; // 60 days
@@ -103,12 +104,15 @@ export async function startEmailCode(c: Context<{ Bindings: Env }>, emailRaw: st
   // Throttle: at most one email per minute, so nobody can flood the inbox by hammering the endpoint.
   const recent = await c.env.DB.prepare("SELECT expires_at FROM email_codes WHERE email = ?").bind(email).first<{ expires_at: number }>();
   if (recent && recent.expires_at - CODE_TTL > now() - 60) return;
+  // A global cap on sends, whatever the client address: rotating IPs cannot flood the inbox.
+  await reserve(c.env, "mail", 1);
   const code = String(100000 + (crypto.getRandomValues(new Uint32Array(1))[0] % 900000));
   const hash = await sha256(`${email}:${code}`);
+  // A new code keeps the failed attempts of a still-valid previous one, so re-requesting never resets the guess budget.
   await c.env.DB.prepare(
-    "INSERT INTO email_codes (email, code_hash, expires_at, attempts) VALUES (?, ?, ?, 0) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = 0",
+    "INSERT INTO email_codes (email, code_hash, expires_at, attempts) VALUES (?, ?, ?, 0) ON CONFLICT(email) DO UPDATE SET code_hash = excluded.code_hash, expires_at = excluded.expires_at, attempts = CASE WHEN email_codes.expires_at >= ? THEN email_codes.attempts ELSE 0 END",
   )
-    .bind(email, hash, now() + CODE_TTL)
+    .bind(email, hash, now() + CODE_TTL, now())
     .run();
 
   const res = await fetch("https://api.dairo.app/v1/messages", {
@@ -134,11 +138,11 @@ export async function startEmailCode(c: Context<{ Bindings: Env }>, emailRaw: st
 
 export async function verifyEmailCode(c: Context<{ Bindings: Env }>, emailRaw: string, code: string): Promise<boolean> {
   const email = emailRaw.trim().toLowerCase();
-  const row = await c.env.DB.prepare("SELECT code_hash, expires_at, attempts FROM email_codes WHERE email = ?")
-    .bind(email)
-    .first<{ code_hash: string; expires_at: number; attempts: number }>();
-  if (!row || row.expires_at < now() || row.attempts >= 5) return false;
-  await c.env.DB.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email = ?").bind(email).run();
+  // Claim one attempt atomically: parallel requests cannot all read attempts = 0 and each get a guess.
+  const row = await c.env.DB.prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE email = ? AND attempts < 5 AND expires_at >= ? RETURNING code_hash")
+    .bind(email, now())
+    .first<{ code_hash: string }>();
+  if (!row) return false;
   const ok = timingSafeEqual(await sha256(`${email}:${String(code ?? "").trim()}`), row.code_hash);
   if (ok) await c.env.DB.prepare("DELETE FROM email_codes WHERE email = ?").bind(email).run();
   return ok;
@@ -154,10 +158,11 @@ async function putChallenge(env: Env, kind: string, value: string): Promise<stri
   return id;
 }
 async function takeChallenge(env: Env, id: string, kind: string): Promise<string | null> {
-  const row = await env.DB.prepare("SELECT value, expires_at FROM challenges WHERE id = ? AND kind = ?")
+  // Take and delete in one statement, so a replayed response racing the first one finds nothing.
+  const row = await env.DB.prepare("DELETE FROM challenges WHERE id = ? AND kind = ? RETURNING value, expires_at")
     .bind(id, kind)
     .first<{ value: string; expires_at: number }>();
-  await env.DB.prepare("DELETE FROM challenges WHERE id = ? OR expires_at < ?").bind(id, now()).run();
+  await env.DB.prepare("DELETE FROM challenges WHERE expires_at < ?").bind(now()).run();
   if (!row || row.expires_at < now()) return null;
   return row.value;
 }
@@ -195,7 +200,7 @@ export async function passkeyRegistrationOptions(env: Env) {
     userID: ownerId(),
     attestationType: "none",
     excludeCredentials: existing.map((p) => ({ id: p.id, transports: p.transports ? (JSON.parse(p.transports) as any) : undefined })),
-    authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+    authenticatorSelection: { residentKey: "required", userVerification: "required" },
   });
   const challengeId = await putChallenge(env, "reg", options.challenge);
   return { options, challengeId };
@@ -209,7 +214,7 @@ export async function passkeyRegistrationVerify(env: Env, challengeId: string, r
     expectedChallenge: expected,
     expectedOrigin: env.ORIGIN,
     expectedRPID: env.RP_ID,
-    requireUserVerification: false,
+    requireUserVerification: true,
   });
   if (!v.verified) throw new Error("registration not verified");
   const cred = v.registrationInfo.credential;
@@ -231,7 +236,7 @@ export async function passkeyRegistrationVerify(env: Env, challengeId: string, r
 }
 
 export async function passkeyAuthenticationOptions(env: Env) {
-  const options = await generateAuthenticationOptions({ rpID: env.RP_ID, userVerification: "preferred" });
+  const options = await generateAuthenticationOptions({ rpID: env.RP_ID, userVerification: "required" });
   const challengeId = await putChallenge(env, "auth", options.challenge);
   return { options, challengeId };
 }
@@ -253,7 +258,7 @@ export async function passkeyAuthenticationVerify(env: Env, challengeId: string,
     expectedOrigin: env.ORIGIN,
     expectedRPID: env.RP_ID,
     credential,
-    requireUserVerification: false,
+    requireUserVerification: true,
   });
   if (!v.verified) return false;
   await env.DB.prepare("UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ?")

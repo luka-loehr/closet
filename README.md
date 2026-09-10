@@ -3,7 +3,7 @@
 [![Runtime](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat&logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
 [![Framework](https://img.shields.io/badge/Hono-4-E36002?style=flat&logo=hono&logoColor=white)](https://hono.dev)
 [![Language](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Generator](https://img.shields.io/badge/OpenAI-gpt--image--2-000000?style=flat&logo=openai&logoColor=white)](https://platform.openai.com/docs/guides/image-generation)
+[![Generator](https://img.shields.io/badge/OpenAI-gpt--image--2.5-000000?style=flat&logo=openai&logoColor=white)](https://platform.openai.com/docs/guides/image-generation)
 [![Analysis](https://img.shields.io/badge/Gemini-3.8%20Flash-4285F4?style=flat&logo=google&logoColor=white)](https://ai.google.dev/gemini-api/docs/structured-output)
 [![Auth](https://img.shields.io/badge/auth-passkeys%20(WebAuthn)-1f6feb?style=flat)](https://simplewebauthn.dev)
 [![Visibility](https://img.shields.io/badge/repo-private-6e7681?style=flat)](#9-security-and-license)
@@ -40,8 +40,9 @@ face is ever described in words — the base photo carries the identity.
 | --- | --- | ---: | --- | ---: |
 | analysis (form + what is missing) | garment photo | — | Gemini 3.8 Flash, thinking off | ≈ 3 s |
 | look (white · dark) | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 40 s each |
-| studio shots of an owned piece (two for shoes) | my phone photo | 1024×1024 | medium | ≈ 30 s each |
+| studio shots of an owned piece (two for shoes) | my phone photo | 1152×1536 | medium | ≈ 30 s each |
 | campaign cover | base photo + 2–3 garments | 1920×1088 (16:9) | high | ≈ 90 s |
+| phone cover | base photo + finished cover + its garments | 1088×1920 (9:16) | cover quality | ≈ 90 s |
 
 Adding a piece is two steps. The upload runs the analysis first: it
 fills name, brand, category, up to three colours and a one-line
@@ -96,7 +97,7 @@ until the queue delivers.
   `frame-ancestors 'none'`, `nosniff` and a referrer policy
   (`public/_headers`).
 - Spending is capped ([`src/budget.ts`](src/budget.ts)): analysis
-  passes, gpt-image-2 calls and covers are counted per UTC hour and day
+  passes, gpt-image-2.5 calls and covers are counted per UTC hour and day
   in the `spend` table. The API pre-checks before it enqueues and answers
   `429` with the reason; the queue consumer reserves right before the
   OpenAI call and marks a job over budget as `skipped` instead of
@@ -137,7 +138,7 @@ Cloudflare Worker — Hono router (src/index.ts)
     |
     +--> /api/auth/*       passkeys + email code, D1 sessions (src/auth.ts)
     |
-    +--> /api/garments     upload / fetch / catalogue, enqueue 3 looks
+    +--> /api/garments     upload / fetch / catalogue, enqueue 2 looks
     +--> /api/hero         enqueue a campaign cover
     |          |
     |          `--> Queue closet-jobs --> consumer (src/jobs.ts)
@@ -154,7 +155,7 @@ Cloudflare Worker — Hono router (src/index.ts)
 | `src/index.ts` | Hono app: routing, origin check, garment ingestion, settings, references, looks, heroes, image serving, hourly sweep. |
 | `src/budget.ts` | Spend counters per UTC hour/day, `precheck`/`reserve`, the housekeeping sweep and the dead-job marker. |
 | `src/auth.ts` | Email codes via Dairo, WebAuthn registration and login, session cookie, `requireAuth`. |
-| `src/jobs.ts` | Queue consumer: `runLook`, `runHero`, base-reference resolution, R2 image loading. |
+| `src/jobs.ts` | Queue consumer: `runLook`, `runStudio`, `runHero`, `runHeroPortrait`, base-reference resolution, R2 image loading. |
 | `src/openai.ts` | `images/edits` client (multipart, base64 decode) and the `gpt-5-mini` fallback cataloguing call. |
 | `src/gemini.ts` | The analysis pass: response schema, thinking off, slot logic for what a fit is missing. |
 | `src/prompts.ts` | The prompt library: categories and slots, look prompt with pairing phrases, studio-shot prompt, seven campaign scenes. |
@@ -163,6 +164,7 @@ Cloudflare Worker — Hono router (src/index.ts)
 | `public/` | `index.html`, `styles.css`, and the built bundle (ignored). |
 | `migrations/` | D1 schema: sessions, codes, challenges, passkeys, reference photos, garments, looks, heroes, settings. |
 | `lab/` | The prompt experiments that produced the recipe (Node scripts). Never part of the runtime. |
+| `ios/` | Native SwiftUI iPhone app (XcodeGen `project.yml`) on the same API and session cookie; native passkeys via `public/.well-known/apple-app-site-association`. |
 
 ## 4. Quickstart
 
@@ -214,13 +216,14 @@ All routes except login and `/img/*` require a session cookie.
 | `GET` · `POST` · `PATCH` · `DELETE /api/refs[/:id]` | Reference photos of the person. |
 | `GET /api/garments?owned=0|1` | Try-on pieces or the wardrobe; drafts never list. |
 | `POST /api/garments[?owned=1]` | Step 1: store the image, run the analysis, return a pre-filled draft. |
-| `POST /api/garments/:id/commit` | Step 2: the reviewed form plus `pairing` per slot → three looks queued (`202`), or a wardrobe piece with its studio shot queued. |
+| `POST /api/garments/:id/commit` | Step 2: the reviewed form plus `pairing` per slot → two looks queued (`202`), or a wardrobe piece with its studio shot queued. |
 | `GET` · `PATCH` · `DELETE /api/garments/:id` | One garment with its looks and paired pieces; edit metadata; delete with images (also discards a draft). |
 | `POST /api/garments/:id/looks` | Enqueue a missing variant for a garment (`409` if it exists or is in flight), optionally with a `pairing`. |
 | `POST /api/garments/:id/studio` · `POST /api/wardrobe/studio` | Re-render the studio views of one owned piece, or of every owned piece (needs `{ "confirm": "re-render all" }`, max 20). |
 | `DELETE /api/looks/:id` | Remove one look. |
 | `GET /api/heroes` · `POST /api/hero` · `DELETE /api/hero/:id` | Campaign covers: list, generate from 2–3 garments in a scene, delete. |
 | `POST /api/heroes/upload` | Store a cover made elsewhere. |
+| `POST /api/hero/:id/portrait` | Queue the 9:16 phone version of a generated cover (iOS home screen, narrow web screens). |
 | `GET /img/*` | Immutable image read from R2. |
 
 ## 6. The generation recipe
@@ -270,6 +273,7 @@ Choices that shaped the current build, with the reason they stuck.
 | decision | why |
 | --- | --- |
 | OpenAI `gpt-image-2` edits instead of Gemini generation | only path that kept identity without describing the face |
+| `gpt-image-2.5-sunburst` for looks and covers, `gpt-image-2.5-flare` for studio shots (2026-09-10) | Sunburst holds identity and edit instructions most precisely; Flare is faster at the same price where no face has to survive |
 | generation on a Queue, not in the request | a closed tab or a 30 s browser timeout used to strand looks mid-flight |
 | no regenerate, no detail page | a card expands in place into the three variants; looks are made once |
 | WebP everywhere at write time | 10× smaller covers, grid thumbnails at 640 px, zero serving cost |
