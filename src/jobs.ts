@@ -1,5 +1,5 @@
 import type { Env, Job } from "./env";
-import { editImage, PRODUCT_MODEL, type ImageInput, type Quality } from "./openai";
+import { editImage, type ImageInput, type Quality } from "./openai";
 import { imageKeys, storeImage } from "./images";
 import { BudgetError, reserve } from "./budget";
 import { buildHeroPortraitPrompt, buildHeroPrompt, buildLookPrompt, buildStudioPrompt, slotsOf, studioViews, type HeroStyle, type Paired, type Slot, type Variant } from "./prompts";
@@ -103,7 +103,7 @@ async function runStudio(env: Env, id: string): Promise<void> {
     const views = studioViews(g.category);
     await reserveImages(env, views.length);
     const shots = await Promise.all(views.map(async (view) => {
-      const r = await editImage({ key: env.OPENAI_API_KEY, images: [src], prompt: buildStudioPrompt(g.category, g.name, view), size: STUDIO_SIZE, quality: "medium", model: PRODUCT_MODEL });
+      const r = await editImage({ key: env.OPENAI_API_KEY, images: [src], prompt: buildStudioPrompt(g.category, g.name, view), size: STUDIO_SIZE, quality: "medium" });
       return storeImage(env, view === "main" ? `studio/${id}` : `studio/${id}-${view}`, r.bytes.buffer as ArrayBuffer, r.mime, { thumb: true, fullWidth: 1152 });
     }));
     await env.DB.prepare("UPDATE garments SET studio_status = 'done', studio_key = ?, studio_alt_key = ? WHERE id = ?").bind(shots[0].key, shots[1]?.key ?? null, id).run();

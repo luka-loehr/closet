@@ -15,7 +15,7 @@ import {
   startEmailCode,
   verifyEmailCode,
 } from "./auth";
-import { describeGarment, EDIT_MODEL, PRODUCT_MODEL, TEXT_MODEL, type Quality } from "./openai";
+import { describeGarment, IMAGE_MODEL, TEXT_MODEL, type Quality } from "./openai";
 import { imageKeys, RASTER_TYPE, sniffImage, storeImage } from "./images";
 import { CATEGORIES, HERO_STYLES, PAIRABLE, VARIANTS, slotsOf, type HeroStyle, type Slot, type Variant } from "./prompts";
 import { analyzeGarment, DEFAULT_GEMINI_MODEL, type Analysis } from "./gemini";
@@ -321,7 +321,7 @@ app.get("/img/*", async (c) => {
 app.get("/api/settings", requireAuth, async (c) => {
   const [analysis, image, hero] = await Promise.all([spent(c.env, "analysis"), spent(c.env, "image"), spent(c.env, "hero")]);
   return c.json({
-    model: `${EDIT_MODEL} · ${PRODUCT_MODEL}`,
+    model: IMAGE_MODEL,
     look_quality: await qualityFor(c.env, "look"),
     hero_quality: await qualityFor(c.env, "hero"),
     qualities: QUALITIES,
@@ -518,7 +518,7 @@ app.post("/api/garments/:id/commit", requireAuth, async (c) => {
   if (committed && !owned) {
     const quality: Quality = QUALITIES.includes(b.quality as Quality) ? (b.quality as Quality) : await qualityFor(c.env, "look");
     const lookIds = VARIANTS.map(() => randomId(9));
-    await c.env.DB.batch(VARIANTS.map((v, i) => c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(lookIds[i], id, v, `${EDIT_MODEL}:${quality}`, now(), JSON.stringify(pairing))));
+    await c.env.DB.batch(VARIANTS.map((v, i) => c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) VALUES (?, ?, ?, 'front', ?, 'pending', ?, ?)").bind(lookIds[i], id, v, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing))));
     await Promise.all(lookIds.map((lid) => c.env.JOBS.send({ kind: "look", id: lid } satisfies Job)));
   }
   return c.json(await garmentWithLooks(c.env, id), committed ? 202 : 200);
@@ -615,7 +615,7 @@ app.post("/api/garments/:id/looks", requireAuth, async (c) => {
   const id = randomId(9);
   // The check above gives the message; this conditional insert is the guarantee when two requests race.
   const ins = await c.env.DB.prepare("INSERT INTO looks (id, garment_id, variant, pose, model, status, created_at, pairing) SELECT ?, ?, ?, 'front', ?, 'pending', ?, ? WHERE NOT EXISTS (SELECT 1 FROM looks WHERE garment_id = ? AND variant = ? AND status IN ('done', 'pending'))")
-    .bind(id, gid, variant, `${EDIT_MODEL}:${quality}`, now(), JSON.stringify(pairing), gid, variant).run();
+    .bind(id, gid, variant, `${IMAGE_MODEL}:${quality}`, now(), JSON.stringify(pairing), gid, variant).run();
   if (!ins.meta.changes) throw new Conflict(`the ${variant} look already exists or is being generated`);
   await c.env.JOBS.send({ kind: "look", id } satisfies Job);
   const look = await c.env.DB.prepare("SELECT * FROM looks WHERE id = ?").bind(id).first<LookRow>();
@@ -664,7 +664,7 @@ app.post("/api/hero", requireAuth, async (c) => {
   await precheck(c.env, "image", 1);
   const id = randomId(6);
   const ins = await c.env.DB.prepare("INSERT INTO heroes (id, garment_ids, style, model, status, created_at) SELECT ?, ?, ?, ?, 'pending', ? WHERE NOT EXISTS (SELECT 1 FROM heroes WHERE status = 'pending')")
-    .bind(id, JSON.stringify(ids), style, `${EDIT_MODEL}:${quality}`, now()).run();
+    .bind(id, JSON.stringify(ids), style, `${IMAGE_MODEL}:${quality}`, now()).run();
   if (!ins.meta.changes) throw new Conflict("a cover is already being generated, wait for it to finish");
   await c.env.JOBS.send({ kind: "hero", id } satisfies Job);
   const h = await c.env.DB.prepare("SELECT * FROM heroes WHERE id = ?").bind(id).first<HeroRow>();

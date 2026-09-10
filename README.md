@@ -273,7 +273,7 @@ Choices that shaped the current build, with the reason they stuck.
 | decision | why |
 | --- | --- |
 | OpenAI `gpt-image-2` edits instead of Gemini generation | only path that kept identity without describing the face |
-| `gpt-image-2.5-sunburst` for looks and covers, `gpt-image-2.5-flare` for studio shots (2026-09-10) | Sunburst holds identity and edit instructions most precisely; Flare is faster at the same price where no face has to survive |
+| `gpt-image-2.5-flare` for every image (2026-09-10) | benchmarked on the look edit: 17 s vs 21 s (Sunburst) and 35 s (gpt-image-2), half the cost of gpt-image-2, identity kept; preferred by eye |
 | generation on a Queue, not in the request | a closed tab or a 30 s browser timeout used to strand looks mid-flight |
 | no regenerate, no detail page | a card expands in place into the three variants; looks are made once |
 | WebP everywhere at write time | 10× smaller covers, grid thumbnails at 640 px, zero serving cost |
