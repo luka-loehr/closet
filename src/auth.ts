@@ -123,7 +123,7 @@ export async function startEmailCode(c: Context<{ Bindings: Env }>, emailRaw: st
       to: [email],
       subject: `${code} is your closet login code`,
       html: `<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;max-width:420px;margin:0 auto;padding:32px 24px;color:#111">
-<p style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#888;margin:0 0 24px">closet.lukaloehr.com</p>
+<p style="font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#888;margin:0 0 24px">${c.env.RP_ID}</p>
 <p style="font-size:15px;margin:0 0 12px">Your login code</p>
 <p style="font-size:40px;font-weight:600;letter-spacing:.18em;margin:0 0 24px;font-variant-numeric:tabular-nums">${code}</p>
 <p style="font-size:13px;color:#666;margin:0">Expires in 10 minutes. If you did not request this, ignore it.</p></div>`,
@@ -196,7 +196,7 @@ export async function passkeyRegistrationOptions(env: Env) {
     rpName: "closet",
     rpID: env.RP_ID,
     userName: env.ALLOWED_EMAIL,
-    userDisplayName: "Luka",
+    userDisplayName: env.ALLOWED_EMAIL,
     userID: ownerId(),
     attestationType: "none",
     excludeCredentials: existing.map((p) => ({ id: p.id, transports: p.transports ? (JSON.parse(p.transports) as any) : undefined })),

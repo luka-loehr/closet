@@ -10,6 +10,8 @@ export type Env = {
   RP_ID: string;
   ORIGIN: string;
   DAIRO_INBOX_ID: string;
+  /** <team id>.<bundle id> of the iOS app, for native passkeys; empty without the app. */
+  APPLE_APP_ID?: string;
   GEMINI_MODEL?: string;
   // secrets
   OPENAI_API_KEY: string;

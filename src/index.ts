@@ -715,6 +715,11 @@ app.delete("/api/hero/:id", requireAuth, async (c) => {
   return c.json({ ok: true });
 });
 
+// Passkeys in the iOS app: the webcredentials association for APPLE_APP_ID (<team id>.<bundle id>), if one is configured.
+app.get("/.well-known/apple-app-site-association", (c) =>
+  c.env.APPLE_APP_ID ? c.json({ webcredentials: { apps: [c.env.APPLE_APP_ID] } }) : c.text("not found", 404),
+);
+
 export default {
   fetch: app.fetch,
   queue: handleQueue,

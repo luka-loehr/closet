@@ -1,0 +1,9 @@
+// Copy to Config.xcconfig (gitignored), fill in, then run `xcodegen generate`.
+
+// The host your Worker is served on, without https:// (the RP_ID in wrangler.jsonc).
+CLOSET_HOST = closet.example.com
+
+// Your Apple developer team and a bundle id you own. APPLE_APP_ID in wrangler.jsonc
+// must be <DEVELOPMENT_TEAM>.<PRODUCT_BUNDLE_IDENTIFIER>, or native passkeys will not be offered.
+DEVELOPMENT_TEAM = ABCDE12345
+PRODUCT_BUNDLE_IDENTIFIER = com.example.closet

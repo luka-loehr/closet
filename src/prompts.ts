@@ -1,4 +1,4 @@
-// Prompt library for closet.lukaloehr.com. Generator: OpenAI gpt-image-2.5-flare (images/edits).
+// Prompt library. Generator: OpenAI gpt-image-2.5-flare (images/edits).
 // Recipe (validated 2026-09-06): the approved base full-body photo is the only identity input; the model edits it.
 // Nothing about the face is described in words: the base photo carries the identity.
 

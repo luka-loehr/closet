@@ -1,7 +1,7 @@
 import AuthenticationServices
 import UIKit
 
-/// Native passkeys for closet.lukaloehr.com (webcredentials associated domain), talking to the same
+/// Native passkeys for the configured host (webcredentials associated domain), talking to the same
 /// @simplewebauthn endpoints as the website. Responses are encoded as the WebAuthn JSON the server expects.
 @MainActor
 final class Passkeys: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {

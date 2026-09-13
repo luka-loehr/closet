@@ -379,7 +379,7 @@ async function viewHome() {
   await swap(`
     <section class="hero ${heroes.length ? "" : "no-slides"}">
       ${heroes.length ? `<div class="slides">${heroes.map((h, i) => `<div class="slide ${i === 0 ? "on" : ""}"><picture>${h.portrait_key ? `<source media="(max-aspect-ratio: 3/4)" srcset="${img(h.portrait_key)}" />` : ""}<img src="${img(h.r2_key)}" alt="" ${i > 1 ? 'loading="lazy"' : ""} /></picture></div>`).join("")}</div><div class="shade"></div>
-        <div class="overlay"><div class="wordmark"><span>closet</span></div><div class="sub">Luka · FW26 · ${garments.length} pieces</div></div>
+        <div class="overlay"><div class="wordmark"><span>closet</span></div><div class="sub">${garments.length} pieces</div></div>
         <div class="scroll-hint"><i></i>Scroll</div>
         <div class="dots">${heroes.map((_, i) => `<button class="${i === 0 ? "on" : ""}" aria-label="Slide ${i + 1}"></button>`).join("")}</div>`
       : `<div class="empty"><div><div class="wordmark">closet</div><p>${garments.length ? "No campaign cover yet. Pick two or three finished looks in settings and generate one." : "No campaign image yet. Add a few garments, then generate one in settings."}</p><a class="btn" href="${garments.length ? "/settings" : "/add"}">${garments.length ? "Generate campaign" : "Add the first piece"}</a></div></div>`}

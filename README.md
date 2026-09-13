@@ -9,70 +9,69 @@
 [![Auth](https://img.shields.io/badge/auth-passkeys%20(WebAuthn)-1f6feb?style=flat)](https://simplewebauthn.dev)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-6e7681?style=flat)](LICENSE)
 
-A personal, single-tenant virtual try-on store at
-[closet.lukaloehr.com](https://closet.lukaloehr.com) and on my iPhone.
-Paste, drop, or photograph a product and the store answers with a
-photorealistic image of me wearing that exact garment — in a white
-cyclorama and in a dark studio. Campaign
-covers on location (New York, a black-sand beach, a rooftop, …) rotate
-on the landing page, with a 9:16 cut of each for the phone.
+A self-hosted, single-tenant virtual try-on store that runs on your own
+Cloudflare account, with a native iPhone app. Paste, drop, or photograph
+a product and the store answers with a photorealistic image of you
+wearing that exact garment, in a white cyclorama and in a dark studio.
+Campaign covers on location (New York, a black-sand beach, a rooftop, …)
+rotate on the landing page, with a 9:16 cut of each for the phone.
 
-The closet also holds what I already own — shoes, jeans, tees — as
+The closet also holds what you already own (shoes, jeans, tees) as
 clean studio product shots, so a new piece can be tried on together
-with my own sneakers instead of the base photo's.
+with your own sneakers instead of the ones in your base photo.
 
-I built the backend as one Cloudflare Worker: the Hono API, the
-queue consumer that talks to OpenAI, the Gemini vision pass that fills
-the form, WebP conversion through the Images binding, passkey and
-email-code login, and a dependency-free TypeScript single-page client
-served from the same Worker. Next to it sits a native SwiftUI iPhone
-app that speaks the same API with the same session and passkeys. There
-is no framework on the web client, no build step beyond one `esbuild`
-bundle, and nothing runs outside Cloudflare except the image model.
+The backend is one Cloudflare Worker: the Hono API, the queue consumer
+that talks to OpenAI, the Gemini vision pass that fills the form, WebP
+conversion through the Images binding, passkey and email-code login, and
+a dependency-free TypeScript single-page client served from the same
+Worker. Next to it sits a native SwiftUI iPhone app that speaks the same
+API with the same session and passkeys. There is no framework on the web
+client, no build step beyond one `esbuild` bundle, and nothing runs
+outside Cloudflare except the model APIs.
 
 ## 1. What it does
 
-Every garment you add becomes two **looks**, in a white studio and a dark studio. Each look is a single
-`images/edits` call: the approved base full-body photo is the first
-input, the garment photo the second, and the model is told to dress the
-person in the garment and change only the background. Nothing about the
-face is ever described in words — the base photo carries the identity.
+Every garment you add becomes two **looks**, in a white studio and a
+dark studio. Each look is a single `images/edits` call: your approved
+base full-body photo is the first input, the garment photo the second,
+and the model is told to dress the person in the garment and change only
+the background. Nothing about the face is ever described in words; the
+base photo carries the identity.
 
 | output | inputs | size | quality | wall time |
 | --- | --- | ---: | --- | ---: |
 | analysis (form + what is missing) | garment photo | — | Gemini 3.8 Flash, thinking off | ≈ 3 s |
 | look (white · dark) | base photo + garment + paired pieces | 1152×1536 (3:4) | medium | ≈ 18 s each |
-| studio shots of an owned piece (two views) | my phone photo | 1152×1536 | medium | ≈ 18 s each |
+| studio shots of an owned piece (two views) | a phone photo | 1152×1536 | medium | ≈ 18 s each |
 | campaign cover | base photo + 2–3 garments | 1920×1088 (16:9) | high | ≈ 30 s |
 | phone cover | base photo + finished cover + its garments | 1088×1920 (9:16) | cover quality | ≈ 30 s |
 
-Every image comes from `gpt-image-2.5-flare`. Times are from the
-2026-09-10 benchmark of the look edit; covers scale with quality.
+Every image comes from `gpt-image-2.5-flare`. Times are from a benchmark
+of the look edit; covers scale with quality.
 
 Adding a piece is two steps. The upload runs the analysis first: it
 fills name, brand, category, up to three colours and a one-line
-description, and lists which slots a complete fit still lacks (a tracksuit lacks
-shoes; a hoodie lacks bottom and shoes). The form comes back
-pre-filled; what the model could not recognise (usually the brand) is
-left for me to type. For a try-on, each missing slot offers the pieces
-I own in that slot, and the chosen ones are worn in every generated
-look. Submit returns immediately and the grid shows skeleton cards
-until the queue delivers.
+description, and lists which slots a complete fit still lacks (a
+tracksuit lacks shoes; a hoodie lacks bottom and shoes). The form comes
+back pre-filled; what the model could not recognise (usually the brand)
+is left for you to type. For a try-on, each missing slot offers the
+pieces you own in that slot, and the chosen ones are worn in every
+generated look. Submit returns immediately and the grid shows skeleton
+cards until the queue delivers.
 
-> **Status: live since 2026-09-06; iPhone app since 2026-09-10.**
-> Generation runs on a Cloudflare Queue, so a closed tab or a locked
-> phone can no longer strand a look. Looks are generated once and never
-> regenerated; a garment is the unit of work.
+Generation runs on a Cloudflare Queue, so a closed tab or a locked phone
+cannot strand a look. Looks are generated once and never regenerated; a
+garment is the unit of work.
 
 ## 2. System
 
 - One Worker serves the API under `/api/*`, images under `/img/*`, and
   the static client from `public/` with SPA fallback
-  ([`wrangler.jsonc`](wrangler.jsonc)).
+  ([`wrangler.example.jsonc`](wrangler.example.jsonc)).
 - Generation runs on the `closet-jobs` queue consumer in the same
   Worker ([`src/jobs.ts`](src/jobs.ts)): the HTTP layer inserts a
   `pending` row, enqueues `{ kind, id }`, returns `202`, and the client
-  polls. Max concurrency 8, one message per batch, no retries — a failed
+  polls. Max concurrency 8, one message per batch, no retries: a failed
   look records its error instead of burning another call.
 - The analysis pass ([`src/gemini.ts`](src/gemini.ts)) is one
   `generateContent` call with a response schema and `thinkingBudget: 0`,
@@ -82,7 +81,7 @@ until the queue delivers.
   They are photographed with the phone; the photo is never the product
   image. A `studio` job renders the piece alone on pure white: ghost
   mannequin for tops, flat lay for trousers and accessories, and for
-  shoes two perspectives — an exact side profile and a three-quarter
+  shoes two perspectives, an exact side profile and a three-quarter
   view of the pair. Looks store the `pairing` they were generated with.
 - Campaign covers get an optional **phone cover**: `POST
   /api/hero/:id/portrait` recomposes a finished generated cover as 9:16
@@ -95,10 +94,10 @@ until the queue delivers.
   ([`src/images.ts`](src/images.ts)). A 2.5 MB PNG cover becomes
   ~250 KB.
 - Login is WebAuthn passkeys (`@simplewebauthn` v14, resident keys, user
-  verification required) or a six-digit code e-mailed through Dairo from
-  `closet@dairo.app`. Only `ALLOWED_EMAIL` gets a code; every other
-  address is a silent no-op. A passkey can only be registered from an
-  already authenticated session ([`src/auth.ts`](src/auth.ts)).
+  verification required) or a six-digit code e-mailed through
+  [Dairo](https://dairo.app). Only `ALLOWED_EMAIL` gets a code; every
+  other address is a silent no-op. A passkey can only be registered from
+  an already authenticated session ([`src/auth.ts`](src/auth.ts)).
 - Sessions are D1 rows behind an `HttpOnly`, `SameSite=Lax` cookie,
   60 days. Codes expire after 10 minutes, allow five guesses claimed
   atomically, and are capped globally (20 e-mails and 30 checks a day)
@@ -145,10 +144,10 @@ until the queue delivers.
 ## 3. iOS app
 
 A native SwiftUI app in [`ios/`](ios/) for iOS 26, built from an
-XcodeGen [`project.yml`](ios/project.yml) (bundle
-`com.lukaloehr.closet`). It is a second client of the same Worker, not
-a second backend: every screen calls `/api/*`, every image is an
-`/img/*` read.
+XcodeGen [`project.yml`](ios/project.yml). It is a second client of the
+same Worker, not a second backend: every screen calls `/api/*`, every
+image is an `/img/*` read. Host, team and bundle id come from
+`ios/Config.xcconfig` (see [section 5](#ios-app-optional)).
 
 | tab | what it shows |
 | --- | --- |
@@ -162,10 +161,9 @@ How it fits the backend:
 - **Session.** The app keeps the same `closet_session` cookie in the
   shared cookie store. Native requests send no `Origin`, which the
   Worker's mutation check allows, while browsers still always send one.
-- **Passkeys.** Native `ASAuthorization` passkeys for
-  `closet.lukaloehr.com`, through the `webcredentials:` associated
-  domain and
-  [`public/.well-known/apple-app-site-association`](public/.well-known/apple-app-site-association).
+- **Passkeys.** Native `ASAuthorization` passkeys for your host, through
+  the `webcredentials:` associated domain. The Worker serves
+  `/.well-known/apple-app-site-association` from the `APPLE_APP_ID` var.
   The assertion's origin is the website's, so the existing
   `@simplewebauthn` verification accepts it unchanged, and a passkey
   saved in Safari works in the app.
@@ -208,12 +206,12 @@ Cloudflare Worker — Hono router (src/index.ts)
     |                                        `--> WebP via Images binding --> R2 closet-images (src/images.ts)
     |
     +--> /img/*            R2 read, immutable cache, sandboxed
-    `--> /*                static assets from public/ (SPA fallback, .well-known)
+    `--> /*                static assets from public/ (SPA fallback)
 ```
 
 | Path | Contents |
 | --- | --- |
-| `src/index.ts` | Hono app: routing, origin check, garment ingestion, settings, references, looks, heroes and phone covers, image serving, hourly sweep. |
+| `src/index.ts` | Hono app: routing, origin check, garment ingestion, settings, references, looks, heroes and phone covers, image serving, the Apple association file, hourly sweep. |
 | `src/budget.ts` | Spend counters per UTC hour/day, `precheck`/`reserve`, the housekeeping sweep and the dead-job marker. |
 | `src/auth.ts` | Email codes via Dairo, WebAuthn registration and login, session cookie, `requireAuth`. |
 | `src/jobs.ts` | Queue consumer: `runLook`, `runStudio`, `runHero`, `runHeroPortrait`, base-reference resolution, R2 image loading. |
@@ -222,39 +220,86 @@ Cloudflare Worker — Hono router (src/index.ts)
 | `src/prompts.ts` | The prompt library: categories and slots, look prompt with pairing phrases, studio-shot prompt, seven campaign scenes, phone cover prompt. |
 | `src/images.ts` | Image type sniffing, WebP conversion and thumbnailing through the Images binding; key bookkeeping for deletes. |
 | `client/` | The single-page web client, bundled by `esbuild` into `public/app.js`. |
-| `public/` | `index.html`, `styles.css`, `_headers`, the passkey association file, and the built bundle (ignored). |
+| `public/` | `index.html`, `styles.css`, `_headers`, and the built bundle (ignored). |
 | `ios/` | The SwiftUI iPhone app (see [section 3](#3-ios-app)). |
 | `migrations/` | D1 schema: sessions, codes, challenges, passkeys, reference photos, garments, looks, heroes and phone covers, settings, spend. |
+| `scripts/setup.mjs` | One-time setup on your Cloudflare account. |
 | `lab/` | The prompt experiments that produced the recipe (Node scripts). Never part of the runtime. |
 
-## 5. Quickstart
+## 5. Deploy your own
 
-Requires Node 20+, a Cloudflare account with Workers, D1, R2, Queues and
-Images enabled, an OpenAI key with image access, and a Dairo API key for
-the login e-mail. The iPhone app needs Xcode 26, XcodeGen and an Apple
-developer team.
+### What you need
 
-### Local
+| Service | Used for | Required | Notes |
+| --- | --- | --- | --- |
+| [Cloudflare](https://dash.cloudflare.com/sign-up) | Workers, D1, R2, Queues, Images binding, cron | yes | The Workers Free plan is enough for one person: Queues include 10,000 operations a day and the Images binding 5,000 unique transformations a month (every stored image uses one or two). R2 has to be enabled once in the dashboard. |
+| [OpenAI API](https://platform.openai.com/api-keys) | every generated image (`gpt-image-2.5-flare` edits) | yes | Image models can require [organization verification](https://platform.openai.com/settings/organization/general). This is where the money goes; the caps in `src/budget.ts` bound it. |
+| [Dairo](https://dairo.app) | the six-digit login e-mail | yes | An API key and an inbox to send from. |
+| [Gemini API](https://aistudio.google.com/apikey) | the analysis pass that pre-fills the form | no | Without it the form is filled by `gpt-5-mini` on your OpenAI key. |
+| A hostname | passkeys are bound to it | yes | A custom domain on a zone in your Cloudflare account, or `closet.<your-subdomain>.workers.dev`. |
+| [Apple Developer Program](https://developer.apple.com/programs/) | the iPhone app | no | Associated domains (native passkeys) need a paid membership. Xcode 26 and [XcodeGen](https://github.com/yonaskolb/XcodeGen). |
+
+Locally: Node 20+ and git.
+
+### Setup
 
 ```bash
+git clone https://github.com/luka-loehr/closet.git && cd closet
 npm install
-cp .dev.vars.example .dev.vars      # OPENAI_API_KEY, DAIRO_API_KEY, RP_ID=localhost, ORIGIN=http://localhost:8787
-npm run migrate:local
-npm run dev                          # esbuild bundle + wrangler dev on :8787
+npx wrangler login
+npm run setup      # asks for your e-mail, hostname and Dairo inbox; creates D1, R2 and the queue,
+                   # writes wrangler.jsonc and applies the migrations
+npm run deploy
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put DAIRO_API_KEY
+npx wrangler secret put GEMINI_API_KEY     # optional
 ```
 
-### Deploy
+`wrangler.jsonc` is your deployment's config and is gitignored;
+[`wrangler.example.jsonc`](wrangler.example.jsonc) is the template. To
+set it up by hand instead, copy the template, create the resources
+(`wrangler d1 create closet`, `wrangler r2 bucket create closet-images`,
+`wrangler queues create closet-jobs`), put the D1 id and your values
+into the copy, and run `npm run migrate`.
+
+| Var in `wrangler.jsonc` | Meaning |
+| --- | --- |
+| `ALLOWED_EMAIL` | The one address that can sign in. |
+| `RP_ID` · `ORIGIN` | Your hostname, and `https://` + hostname. Passkeys are bound to it. |
+| `DAIRO_INBOX_ID` | The Dairo inbox the login code is sent from. |
+| `APPLE_APP_ID` | `<team id>.<bundle id>` of your iPhone build, or empty. |
+| `GEMINI_MODEL` | The analysis model. |
+
+First run: open your hostname, sign in with the e-mail code, add a
+passkey under Settings, upload a well-lit full-body photo of yourself
+under Settings → References and mark it as the base photo, then add a
+garment.
+
+### Updating
 
 ```bash
+git pull
 npm run typecheck
-npm run migrate                      # apply new D1 migrations remotely
-npm run deploy                       # bundle + wrangler deploy to closet.lukaloehr.com
+npm run migrate    # apply new D1 migrations
+npm run deploy
 ```
 
-### iPhone app
+### Local development
+
+```bash
+cp .dev.vars.example .dev.vars     # API keys; RP_ID=localhost, ORIGIN=http://localhost:8787
+npm run migrate:local
+npm run dev                        # esbuild bundle + wrangler dev on :8787
+```
+
+`wrangler dev` needs a `wrangler.jsonc`: run `npm run setup` or copy the
+template. Values in `.dev.vars` override the vars for local runs.
+
+### iOS app (optional)
 
 ```bash
 cd ios
+cp Config.example.xcconfig Config.xcconfig   # CLOSET_HOST, DEVELOPMENT_TEAM, PRODUCT_BUNDLE_IDENTIFIER
 xcodegen generate
 xcodebuild -project Closet.xcodeproj -scheme Closet -destination 'generic/platform=iOS' \
   -allowProvisioningUpdates -derivedDataPath build build
@@ -262,33 +307,15 @@ xcrun devicectl list devices         # find the connected iPhone
 xcrun devicectl device install app --device <id> build/Build/Products/Debug-iphoneos/Closet.app
 ```
 
-The team ID in `project.yml` must match the app ID in
-`public/.well-known/apple-app-site-association`, or native passkeys will
-not be offered. The app always talks to production
-(`closet.lukaloehr.com`).
+Set `APPLE_APP_ID` in `wrangler.jsonc` to
+`<DEVELOPMENT_TEAM>.<PRODUCT_BUNDLE_IDENTIFIER>` and deploy, or native
+passkeys will not be offered. The app always talks to `CLOSET_HOST`.
 
-Secrets live in Wrangler (`wrangler secret put`), not in the config:
-`OPENAI_API_KEY`, `DAIRO_API_KEY` and `GEMINI_API_KEY`. The analysis
-model is the plain var `GEMINI_MODEL`. Plain vars
-(`ALLOWED_EMAIL`, `RP_ID`, `ORIGIN`, `DAIRO_INBOX_ID`) are in
-[`wrangler.jsonc`](wrangler.jsonc).
+### Lab scripts
 
-### Running your own
-
-The repository is configured for my deployment. To run your own copy,
-change in [`wrangler.jsonc`](wrangler.jsonc) the route, the D1
-`database_id` (from `wrangler d1 create closet`), `ALLOWED_EMAIL`,
-`RP_ID`, `ORIGIN` and `DAIRO_INBOX_ID`; create the R2 bucket
-`closet-images` and the queue `closet-jobs`. For the iPhone app, change
-the host in `ios/Closet/API.swift`, the associated domain in
-`ios/Closet/Closet.entitlements`, the bundle id and team in
-`ios/project.yml`, and the app id in
-`public/.well-known/apple-app-site-association`. The `lab/` scripts read
-`OPENAI_API_KEY` / `GEMINI_API_KEY` from the environment and expect
-your own photos under `refs/`.
-
-First run: sign in with the e-mail code, upload the base full-body
-photo under Settings → References, then add a garment.
+The scripts in `lab/` read `OPENAI_API_KEY` or `GEMINI_API_KEY` from the
+environment and expect your own photos under `refs/` (ignored). Their
+outputs go to `lab/out/` (ignored).
 
 ## 6. HTTP API
 
@@ -314,24 +341,24 @@ All routes except login and `/img/*` require a session cookie.
 | `GET /api/heroes` · `POST /api/hero` · `DELETE /api/hero/:id` | Campaign covers: list, generate from 2–3 garments in a scene, delete. |
 | `POST /api/heroes/upload` | Store a cover made elsewhere. |
 | `POST /api/hero/:id/portrait` | Queue the 9:16 phone version of a generated cover (iPhone home screen, narrow web screens). |
-| `GET /img/*` | Immutable image read from R2. |
+| `GET /img/*` | Immutable image read from R2 (session required). |
+| `GET /.well-known/apple-app-site-association` | Passkey association for `APPLE_APP_ID`; `404` when it is empty. |
 
 ## 7. The generation recipe
 
-The recipe was settled on 2026-09-06 after a day in `lab/` and is the
-only thing the model is asked to do:
+The recipe came out of the experiments in `lab/` and is the only thing
+the model is asked to do:
 
 1. **Identity comes from a photo, not from text.** The first input is
    always the approved base full-body photo. Face, hair, skin, pose,
    hands, framing are instructed to stay exactly as in that image.
 2. **Garments are reproduced, not interpreted.** Colour, fabric, logos,
    cut are to be copied from the second image; a full outfit replaces
-   top and trousers, a top replaces only the tee, trousers only the
-   jeans, shoes only the shoes. Paired pieces from the wardrobe follow
-   as images three onwards, each with a one-line slot instruction
-   ("image 3 shows shoes: replace his shoes with exactly these shoes").
+   top and trousers, a top replaces only the top, trousers only the
+   trousers, shoes only the shoes. Paired pieces from the wardrobe follow
+   as images three onwards, each with a one-line slot instruction.
 3. **The variant changes only the environment.** White keeps the studio
-   as is; dark relights him in a charcoal studio with a rim light.
+   as is; dark relights the person in a charcoal studio with a rim light.
 4. **Covers are the same person two or three times in one frame**, each
    in one garment, in one of seven scenes (NYC, beach, wheel, wall,
    rooftop, garage, studio), full bodies, wide landscape.
@@ -340,11 +367,11 @@ only thing the model is asked to do:
    staggered in depth to fit 9:16, with a calm top and a face-free
    bottom for the wordmark.
 
-Gemini was the first generator and was retired the same day: it could
-not hold identity across variants without describing the face, and
-describing the face drifted. The retired scripts stay in `lab/` for
-history. The model moved from `gpt-image-2` to `gpt-image-2.5-flare`
-on 2026-09-10 with the recipe unchanged.
+Gemini was the first generator and was retired: it could not hold
+identity across variants without describing the face, and describing
+the face drifted. The retired scripts stay in `lab/` for history. The
+model later moved from `gpt-image-2` to `gpt-image-2.5-flare` with the
+recipe unchanged.
 
 ## 8. Data and storage
 
@@ -357,9 +384,9 @@ on 2026-09-10 with the recipe unchanged.
 
 A look row records its variant, model and quality tag, status
 (`pending` → `done` / `error`), the exact prompt, and the generation
-time in milliseconds, so every image on the site can be traced back to
-the call that made it. Deleting a garment cascades to its looks and
-removes every R2 object of theirs.
+time in milliseconds, so every image can be traced back to the call
+that made it. Deleting a garment cascades to its looks and removes every
+R2 object of theirs.
 
 ## 9. Decision record
 
@@ -368,7 +395,7 @@ Choices that shaped the current build, with the reason they stuck.
 | decision | why |
 | --- | --- |
 | OpenAI `gpt-image-2` edits instead of Gemini generation | only path that kept identity without describing the face |
-| `gpt-image-2.5-flare` for every image, looks at medium (2026-09-10) | benchmarked on the look edit: 17 s vs 21 s (Sunburst) and 35 s (gpt-image-2), half the cost of gpt-image-2, identity kept; preferred by eye, and medium over the five other quality modes |
+| `gpt-image-2.5-flare` for every image, looks at medium | benchmarked on the look edit: 17 s vs 21 s (Sunburst) and 35 s (gpt-image-2), half the cost of gpt-image-2, identity kept; medium over the five other quality modes |
 | generation on a Queue, not in the request | a closed tab or a 30 s browser timeout used to strand looks mid-flight |
 | no regenerate, no detail page | a card expands in place into its variants; looks are made once |
 | WebP everywhere at write time | 10× smaller covers, grid thumbnails at 640 px, zero serving cost |
@@ -379,36 +406,36 @@ Choices that shaped the current build, with the reason they stuck.
 | native iOS controls over the web's custom styles | forms, segmented pickers and toolbar menus read as an iPhone app; the custom buttons and chips made the add flow noisy |
 | phone covers as a separate 9:16 render, on request | cropping a 16:9 cover to a phone cuts people out; generating one per cover only when asked keeps the cover cap intact |
 | `max_retries: 0` on the queue | a failed edit costs real money; record the error and let a human decide |
-| analysis before generation, Gemini Flash with thinking off | the form is filled and the missing slots known in ~3 s; nothing is generated until I have reviewed it |
+| analysis before generation, Gemini Flash with thinking off | the form is filled and the missing slots known in ~3 s; nothing is generated until it has been reviewed |
 | draft rows instead of holding the upload client-side | the image is uploaded once, and a discarded draft is a plain delete |
 | one wardrobe table, not a second entity | an owned piece and a try-on piece share cataloguing, images and deletion; `owned` is a flag |
 | hard spend caps in D1, checked twice | the API refuses early with a clear `429`; the consumer refuses again right before the call, so a stuck queue or a retry can never run up a bill |
 | conditional `UPDATE`s and `INSERT`s instead of locks | a claim, a commit, a re-render, a new variant and a new cover each change one row with one statement; D1 has no transactions across requests, but a single statement is atomic |
 | reconcile the grid, never replace it | replacing `innerHTML` every poll re-ran the card animation and made the page jump; keyed patching touches only what changed |
 | scroll state in `history.state` | the viewers are overlays over a live list; closing one is a `popstate` onto the same route, which restores the scroll instead of re-rendering |
+| deployment config out of the repository | `wrangler.jsonc` and `ios/Config.xcconfig` are generated per deployment from committed templates, so a fork never inherits someone else's domain, database or team |
 
 ## 10. Security and license
 
-The service is single-tenant by design: one allowed e-mail, resident
-passkeys bound to `closet.lukaloehr.com` with user verification
-required, `HttpOnly` `SameSite=Lax` sessions, an `Origin` check on
-every browser mutation, login codes with atomically counted attempts
-and global caps on e-mails and checks, login traffic capped per IP, a
-CSP with `frame-ancestors 'none'` on the client, `noindex` on every
-page, ids validated before they reach the database, and public-URL
-fetches blocked from private address ranges with redirects followed by
-hand. Uploads are typed by their bytes and only raster images are
-stored; `/img/*` answers with a raster content type inside a
-`sandbox` CSP. Error responses never carry internals. The iPhone app
-uses HTTPS only, with no transport exceptions. Reference photos of the
-person are stored only in R2 and are deliberately kept out of this
-repository (`refs/` is ignored), as are the experiment outputs in
-`lab/out/`.
+Each deployment is single-tenant by design: one allowed e-mail, resident
+passkeys bound to your hostname with user verification required,
+`HttpOnly` `SameSite=Lax` sessions, an `Origin` check on every browser
+mutation, login codes with atomically counted attempts and global caps
+on e-mails and checks, login traffic capped per IP, a CSP with
+`frame-ancestors 'none'` on the client, `noindex` on every page, ids
+validated before they reach the database, and public-URL fetches
+blocked from private address ranges with redirects followed by hand.
+Uploads are typed by their bytes and only raster images are stored;
+`/img/*` answers with a raster content type inside a `sandbox` CSP and
+requires a session. Error responses never carry internals. The iPhone
+app uses HTTPS only, with no transport exceptions. Reference photos stay
+in your R2 bucket; `refs/` and `lab/out/` are ignored so they never land
+in git.
 
 Found a security issue? Please report it privately through GitHub's
 security advisories rather than a public issue.
 
 Licensed under the [GNU Affero General Public License v3.0](LICENSE).
 If you run a modified version as a network service, you must offer its
-source to its users. The photos in this repository (banner, app icon)
-show me and are not licensed for reuse.
+source to its users. The photos in `docs/assets/` and the app icon show
+the author and are not licensed for reuse; replace them in your fork.

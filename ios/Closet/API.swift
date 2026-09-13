@@ -11,8 +11,9 @@ private struct ErrorBody: Decodable { let error: String? }
 
 /// The closet Worker API. The session is the same HttpOnly cookie the website uses, kept in the shared cookie store.
 enum API {
-  static let host = "closet.lukaloehr.com"
-  static let base = "https://closet.lukaloehr.com"
+  /// CLOSET_HOST from ios/Config.xcconfig, carried into Info.plist as ClosetHost.
+  static let host = Bundle.main.object(forInfoDictionaryKey: "ClosetHost") as? String ?? ""
+  static let base = "https://\(host)"
 
   static let session: URLSession = {
     let c = URLSessionConfiguration.default

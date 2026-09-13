@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Identity set synthesis: clean studio reference portraits of Luka from his real photos.
+// Identity set synthesis: clean studio reference portraits of the person from their real photos.
 // usage: node lab/identity.mjs --shot headshot|threequarter|fullbody --n 3 --model gemini-3-pro-image [--tag r1]
 import { readFileSync, writeFileSync } from "node:fs";
 

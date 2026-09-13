@@ -82,7 +82,7 @@ struct CoverCarousel: View {
           Wordmark(size: 96, color: .white)
             .offset(y: rise ? 0 : 110)
             .clipped()
-          Text("Luka · FW26 · \(pieces) pieces")
+          Text("\(pieces) pieces")
             .caps(11, tracking: 3.5)
             .foregroundStyle(.white)
             .opacity(rise ? 1 : 0)
