@@ -56,6 +56,7 @@ The photos in `docs/assets/` and the app icon are not licensed for reuse.
 ## Support
 
 - [Report bugs](https://github.com/luka-loehr/closet/issues)  
+- [luka@lukaloehr.com](mailto:luka@lukaloehr.com)  
 - Security issues: report privately via [GitHub security advisories](https://github.com/luka-loehr/closet/security/advisories/new)
 
 ---
