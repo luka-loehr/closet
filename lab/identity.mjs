@@ -8,7 +8,7 @@ const model = args.model || "gemini-3-pro-image";
 const shot = args.shot || "headshot";
 const n = Number(args.n || 1);
 const tag = args.tag || "r1";
-const key = readFileSync("./gemini.key", "utf8").trim();
+const key = process.env.GEMINI_API_KEY || (() => { throw new Error("set GEMINI_API_KEY"); })();
 const persons = (args.persons || "refs/person/face.jpg,refs/person/tee.jpg,refs/person/sweater.jpg").split(",");
 
 const FACE = `IDENTITY (non-negotiable): The subject is the specific young man in the reference photos. Reference photo 1 is a close-up of his face: reproduce that exact face as a faithful likeness, as if it were the same photo re-shot in a studio. His features: narrow oval face, slim jaw, small pointed chin; medium-length light-brown hair with natural volume and a soft wave, worn as a full fringe swept forward and slightly to one side, covering the forehead to just above the eyebrows and partly covering the ears; the hair has soft natural texture and lift at the crown, neither a flat bowl cut nor messy bedhead; light blue, fairly close-set eyes with straight low eyebrows; straight slim nose; small mouth with thin lips; fair clear skin, no facial hair; slim neck, slim athletic build with narrow shoulders; 18-20 years old. Do not widen the face, thicken the lips, add stubble, change the hair texture or make him look older. Remove the phone and the mirror completely: he is not holding anything.`;

@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, arr) => { if (x.startsWith("--")) a.push([x.slice(2), arr[i + 1] && !arr[i + 1].startsWith("--") ? arr[i + 1] : "true"]); return a; }, []));
-const key = readFileSync("./openai.key", "utf8").trim();
+const key = process.env.OPENAI_API_KEY || (() => { throw new Error("set OPENAI_API_KEY"); })();
 const ENV = {
   white: "Keep the white studio background exactly as it is.",
   dark: "Change the background to a seamless dark charcoal photo studio with a soft rim light behind him and a soft floor shadow; relight him to match.",

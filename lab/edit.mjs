@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, arr) => { if (x.startsWith("--")) a.push([x.slice(2), arr[i + 1] && !arr[i + 1].startsWith("--") ? arr[i + 1] : "true"]); return a; }, []));
 const model = args.model || "gemini-3.1-flash-lite-image";
-const key = readFileSync("./gemini.key", "utf8").trim();
+const key = process.env.GEMINI_API_KEY || (() => { throw new Error("set GEMINI_API_KEY"); })();
 const n = Number(args.n || 1);
 const img = (p) => ({ inline_data: { mime_type: p.endsWith(".png") ? "image/png" : "image/jpeg", data: readFileSync(p).toString("base64") } });
 const ENV = {

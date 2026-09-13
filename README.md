@@ -7,9 +7,9 @@
 [![Generator](https://img.shields.io/badge/OpenAI-gpt--image--2.5--flare-000000?style=flat&logo=openai&logoColor=white)](https://platform.openai.com/docs/guides/image-generation)
 [![Analysis](https://img.shields.io/badge/Gemini-3.8%20Flash-4285F4?style=flat&logo=google&logoColor=white)](https://ai.google.dev/gemini-api/docs/structured-output)
 [![Auth](https://img.shields.io/badge/auth-passkeys%20(WebAuthn)-1f6feb?style=flat)](https://simplewebauthn.dev)
-[![Visibility](https://img.shields.io/badge/repo-private-6e7681?style=flat)](#10-security-and-license)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-6e7681?style=flat)](LICENSE)
 
-A private virtual try-on store at
+A personal, single-tenant virtual try-on store at
 [closet.lukaloehr.com](https://closet.lukaloehr.com) and on my iPhone.
 Paste, drop, or photograph a product and the store answers with a
 photorealistic image of me wearing that exact garment — in a white
@@ -267,13 +267,25 @@ The team ID in `project.yml` must match the app ID in
 not be offered. The app always talks to production
 (`closet.lukaloehr.com`).
 
-Secrets live in Wrangler, not in the config: `OPENAI_API_KEY`,
-`DAIRO_API_KEY` (secret) and
-`GEMINI_API_KEY` (an API key of the `google-cloud-project` Google Cloud project;
-`gcloud services api-keys get-key-string` recovers it). The analysis
+Secrets live in Wrangler (`wrangler secret put`), not in the config:
+`OPENAI_API_KEY`, `DAIRO_API_KEY` and `GEMINI_API_KEY`. The analysis
 model is the plain var `GEMINI_MODEL`. Plain vars
 (`ALLOWED_EMAIL`, `RP_ID`, `ORIGIN`, `DAIRO_INBOX_ID`) are in
 [`wrangler.jsonc`](wrangler.jsonc).
+
+### Running your own
+
+The repository is configured for my deployment. To run your own copy,
+change in [`wrangler.jsonc`](wrangler.jsonc) the route, the D1
+`database_id` (from `wrangler d1 create closet`), `ALLOWED_EMAIL`,
+`RP_ID`, `ORIGIN` and `DAIRO_INBOX_ID`; create the R2 bucket
+`closet-images` and the queue `closet-jobs`. For the iPhone app, change
+the host in `ios/Closet/API.swift`, the associated domain in
+`ios/Closet/Closet.entitlements`, the bundle id and team in
+`ios/project.yml`, and the app id in
+`public/.well-known/apple-app-site-association`. The `lab/` scripts read
+`OPENAI_API_KEY` / `GEMINI_API_KEY` from the environment and expect
+your own photos under `refs/`.
 
 First run: sign in with the e-mail code, upload the base full-body
 photo under Settings → References, then add a garment.
@@ -393,5 +405,10 @@ person are stored only in R2 and are deliberately kept out of this
 repository (`refs/` is ignored), as are the experiment outputs in
 `lab/out/`.
 
-This repository is private. All rights reserved; no license is granted
-for reuse.
+Found a security issue? Please report it privately through GitHub's
+security advisories rather than a public issue.
+
+Licensed under the [GNU Affero General Public License v3.0](LICENSE).
+If you run a modified version as a network service, you must offer its
+source to its users. The photos in this repository (banner, app icon)
+show me and are not licensed for reuse.

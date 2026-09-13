@@ -1,6 +1,7 @@
 {
   "name": "closet",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "build:client": "esbuild client/app.ts --bundle --minify --format=iife --target=es2022 --outfile=public/app.js",

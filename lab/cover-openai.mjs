@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, x, i, arr) => { if (x.startsWith("--")) a.push([x.slice(2), arr[i + 1] && !arr[i + 1].startsWith("--") ? arr[i + 1] : "true"]); return a; }, []));
 const model = args.model || "gpt-image-2";
-const key = readFileSync("./openai.key", "utf8").trim();
+const key = process.env.OPENAI_API_KEY || (() => { throw new Error("set OPENAI_API_KEY"); })();
 const garments = (args.garments || "refs/garments/palm-angels-tracksuit.png,refs/garments/puffer.png,refs/garments/plaid-shell-blue.png").split(",");
 const style = args.style || "grey";
 

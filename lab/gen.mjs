@@ -13,11 +13,7 @@ const args = Object.fromEntries(
 const model = args.model || "gemini-3.1-flash-lite-image";
 const variant = args.variant || "white";
 const out = args.out || `lab/out/${variant}-${model}.png`;
-const key = readFileSync(
-  process.env.GEMINI_KEY_FILE ||
-    "./gemini.key",
-  "utf8"
-).trim();
+const key = process.env.GEMINI_KEY_FILE ? readFileSync(process.env.GEMINI_KEY_FILE, "utf8").trim() : process.env.GEMINI_API_KEY || (() => { throw new Error("set GEMINI_API_KEY"); })();
 
 const persons = (args.persons || "refs/person/tee.jpg,refs/person/sweater.jpg").split(",");
 const garments = (args.garment || "refs/garments/palm-angels-tracksuit.png").split(",");
